@@ -1,0 +1,57 @@
+name: Сборка VSIX и приложений
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  vsix:
+    name: Расширение VS Code (VSIX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Установка зависимостей
+        working-directory: extension
+        run: npm install
+      - name: Упаковка VSIX
+        working-directory: extension
+        run: npx vsce package --allow-missing-repository -o onec-config-tree.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onec-config-tree-vsix
+          path: extension/onec-config-tree.vsix
+
+  apps:
+    name: Клиент и публикатор (${{ matrix.rid }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [win-x64, linux-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Сборка клиента
+        run: >
+          dotnet publish client/Client -c Release -r ${{ matrix.rid }}
+          --self-contained -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -o artifacts/${{ matrix.rid }}
+      - name: Сборка публикатора
+        run: >
+          dotnet publish tools/Publisher -c Release -r ${{ matrix.rid }}
+          --self-contained -p:PublishSingleFile=true
+          -o artifacts/${{ matrix.rid }}
+      - name: Метаданные и демо-база в комплект
+        run: |
+          cp -r metadata artifacts/${{ matrix.rid }}/metadata
+          mkdir -p artifacts/${{ matrix.rid }}/data
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onec-mini-${{ matrix.rid }}
+          path: artifacts/${{ matrix.rid }}
