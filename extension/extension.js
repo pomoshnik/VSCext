@@ -606,9 +606,29 @@ async function cmdOpenModule(provider, treeView, storage, node) {
 
 // --- Публикация в SQLite ------------------------------------------------------
 
-function cmdPublish(storage) {
+async function cmdPublish(provider, storage, context) {
   if (!storage.isProject) {
     vscode.window.showWarningMessage('Нет проекта конфигурации. Откройте папку с каталогом metadata/ или выполните «1С: Инициализировать проект».');
+    return;
+  }
+  try {
+    const publisher = require('./publisher.js');
+    const res = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: 'Публикация конфигурации в SQLite…' },
+      () => publisher.publish(provider.model, storage.root, context.extensionPath)
+    );
+    const parts = [`таблиц создано: ${res.created}, обновлено: ${res.updated}`];
+    if (res.genFile) parts.push('код метаданных перегенерирован');
+    vscode.window.showInformationMessage('Публикация выполнена (' + parts.join('; ') + '). База: data/app.db');
+  } catch (e) {
+    vscode.window.showErrorMessage('Ошибка публикации: ' + (e && e.message ? e.message : e));
+  }
+}
+
+// Резервный вариант — через консольный публикатор на .NET
+function cmdPublishDotnet(storage) {
+  if (!storage.isProject) {
+    vscode.window.showWarningMessage('Нет проекта конфигурации.');
     return;
   }
   const terminal = vscode.window.terminals.find(t => t.name === 'Публикация 1С')
@@ -763,7 +783,8 @@ function activate(context) {
     vscode.commands.registerCommand('onecTree.rename', n => cmdRename(provider, treeView, n)),
     vscode.commands.registerCommand('onecTree.properties', n => cmdProperties(provider, treeView, n)),
     vscode.commands.registerCommand('onecTree.openModule', n => cmdOpenModule(provider, treeView, storage, n)),
-    vscode.commands.registerCommand('onecTree.publish', () => cmdPublish(storage)),
+    vscode.commands.registerCommand('onecTree.publish', () => cmdPublish(provider, storage, context)),
+    vscode.commands.registerCommand('onecTree.publishDotnet', () => cmdPublishDotnet(storage)),
     vscode.commands.registerCommand('onecTree.init', () => cmdInit(provider, storage)),
     vscode.commands.registerCommand('onecTree.setType', async n => {
       n = n || treeView.selection[0];
