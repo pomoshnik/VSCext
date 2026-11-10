@@ -750,35 +750,45 @@ function nodeTypeLabel(node) {
   return node.typeLabel || 'Объект';
 }
 
-function cmdProperties(provider, treeView, node) {
-  node = node || treeView.selection[0] || provider.model;
+function ensurePropPanel(provider) {
+  if (propPanel) return;
+  propPanel = vscode.window.createWebviewPanel(
+    'onecProps', 'Свойства', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+    { enableScripts: true, retainContextWhenHidden: true });
+  propPanel.onDidDispose(() => { propPanel = null; propNodeId = null; });
+  propPanel.webview.onDidReceiveMessage(msg => {
+    if (msg.type !== 'set') return;
+    // правка адресуется узлу, чей id пришёл из формы — даже если палитра
+    // уже переключилась на другой узел, изменение не потеряется и не попадёт не туда
+    const n = provider.index.get(msg.id || propNodeId);
+    if (!n) return;
+    if (msg.field === 'name') {
+      if (validateName(msg.value) || msg.value === n.name) return;
+      const oldName = n.name;
+      n.name = msg.value;
+      if (n.kind === 'object') renameModuleWithObject(provider.storage, n, oldName, msg.value);
+    } else if (msg.field === 'synonym') n.synonym = msg.value;
+    else if (msg.field === 'comment') n.comment = msg.value;
+    else if (msg.field === 'type') n.type = msg.value;
+    else if (msg.field === 'version') n.version = msg.value;
+    provider.refresh();
+    if (propPanel && n.id === propNodeId) propPanel.title = 'Свойства: ' + n.name;
+  });
+}
+
+// Показать свойства узла в уже открытой палитре
+function showProperties(node) {
+  if (!propPanel || !node) return;
   propNodeId = node.id;
-
-  if (!propPanel) {
-    propPanel = vscode.window.createWebviewPanel(
-      'onecProps', 'Свойства', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-      { enableScripts: true, retainContextWhenHidden: true });
-    propPanel.onDidDispose(() => { propPanel = null; propNodeId = null; });
-    propPanel.webview.onDidReceiveMessage(msg => {
-      const n = provider.index.get(propNodeId);
-      if (!n || msg.type !== 'set') return;
-      if (msg.field === 'name') {
-        if (validateName(msg.value) || msg.value === n.name) return;
-        const oldName = n.name;
-        n.name = msg.value;
-        if (n.kind === 'object') renameModuleWithObject(provider.storage, n, oldName, msg.value);
-      } else if (msg.field === 'synonym') n.synonym = msg.value;
-      else if (msg.field === 'comment') n.comment = msg.value;
-      else if (msg.field === 'type') n.type = msg.value;
-      else if (msg.field === 'version') n.version = msg.value;
-      provider.refresh();
-      propPanel.title = 'Свойства: ' + n.name;
-    });
-  }
-
   const editable = ['object', 'leaf', 'root'].includes(node.kind);
   propPanel.title = 'Свойства: ' + node.name;
   propPanel.webview.html = propsHtml(node, editable);
+}
+
+function cmdProperties(provider, treeView, node) {
+  node = node || treeView.selection[0] || provider.model;
+  ensurePropPanel(provider);
+  showProperties(node);
   propPanel.reveal(vscode.ViewColumn.Beside, true);
 }
 
@@ -827,9 +837,10 @@ function propsHtml(node, editable) {
   </table>
   <script>
     const vscode = acquireVsCodeApi();
+    const nodeId = '${node.id}';
     for (const id of ['name','synonym','comment','type','version']) {
       const el = document.getElementById(id);
-      if (el) el.addEventListener('change', () => vscode.postMessage({ type: 'set', field: id, value: el.value }));
+      if (el) el.addEventListener('change', () => vscode.postMessage({ type: 'set', id: nodeId, field: id, value: el.value }));
     }
   </script>
 </body></html>`;
@@ -862,6 +873,12 @@ function activate(context) {
     watcher.onDidDelete(onFsChange);
     context.subscriptions.push(watcher);
   }
+
+  // Палитра свойств следует за выделением в дереве (как в Конфигураторе 1С)
+  treeView.onDidChangeSelection(e => {
+    const n = e.selection && e.selection[0];
+    if (propPanel && n && n.id !== propNodeId) showProperties(n);
+  });
 
   context.subscriptions.push(
     treeView,
