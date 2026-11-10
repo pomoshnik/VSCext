@@ -521,6 +521,41 @@ async function cmdRename(provider, treeView, node) {
 // --- Модуль объекта на C# ---------------------------------------------------
 
 function moduleTemplate(kind1c, name) {
+  // Для справочников и документов — типизированный модуль:
+  // реквизиты через точку + автодополнение (типы генерирует публикатор).
+  if (kind1c === 'Справочник' || kind1c === 'Документ') {
+    const rec = `${kind1c}${name}Запись`;
+    const base = `Модуль${kind1c}${name}`;
+    return `using OneC.Core;
+
+namespace BusinessLogic.Modules;
+
+/// <summary>
+/// Модуль объекта: ${kind1c}.${name}
+/// Реквизиты доступны через точку: запись.ИмяРеквизита
+/// Типы генерируются публикатором (кнопка «Опубликовать в SQLite»).
+/// </summary>
+[МодульОбъекта("${kind1c}.${name}")]
+public class ${kind1c}_${name} : ${base}
+{
+    public override void ПередЗаписью(${rec} запись, Отказ отказ)
+    {
+        // if (string.IsNullOrWhiteSpace(запись.Наименование))
+        //     отказ.Установить("Не заполнено наименование.");
+    }
+
+    public override void ПриЗаписи(${rec} запись)
+    {
+    }
+
+    public override void ПриЗаполнении(${rec} запись)
+    {
+        // запись.ИмяРеквизита = "значение по умолчанию";
+        // запись.СтавкаНДС = Перечисления.СтавкиНДС.НДС20;
+    }
+}
+`;
+  }
   return `using OneC.Core;
 
 namespace BusinessLogic.Modules;
@@ -534,8 +569,6 @@ public class ${kind1c}_${name} : МодульОбъекта
 {
     public override void ПередЗаписью(ЗаписьОбъекта запись, Отказ отказ)
     {
-        // if (string.IsNullOrWhiteSpace(запись.Строка("Наименование")))
-        //     отказ.Установить("Не заполнено наименование.");
     }
 
     public override void ПриЗаписи(ЗаписьОбъекта запись)
@@ -544,7 +577,6 @@ public class ${kind1c}_${name} : МодульОбъекта
 
     public override void ПриЗаполнении(ЗаписьОбъекта запись)
     {
-        // запись["ИмяРеквизита"] = "значение по умолчанию";
     }
 }
 `;
