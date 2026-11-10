@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!-- AVLN3001: окна создаются кодом (конструкторы с параметрами), runtime-загрузчик по URI не нужен -->
+    <NoWarn>$(NoWarn);AVLN3001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.1.4" />

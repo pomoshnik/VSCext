@@ -173,8 +173,3 @@ public static class РасширенияЗаписи
     public static string ПолноеИмяОбъекта(this ОбъектМетаданных о) => о.ПолноеИмя;
 }
 
-/// <summary>Простые диалоги — реализация в Шаблон, здесь только совместимое имя.</summary>
-public static class Диалоги
-{
-    public static Task<bool> Вопрос(Window владелец, string текст) => Шаблон.Вопрос(владелец, текст);
-}

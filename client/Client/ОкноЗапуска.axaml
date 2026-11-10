@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Client.ОкноЗапуска"
+        Title="Запуск 1С-мини"
+        Width="620" Height="460"
+        WindowStartupLocation="CenterScreen">
+
+  <DockPanel>
+    <TextBlock DockPanel.Dock="Top" Classes="sectionHeader" Text="Информационные базы" />
+    <TextBlock x:Name="ПутьВнизу" DockPanel.Dock="Bottom" Classes="status" />
+
+    <!-- столбец кнопок, как в окне «Запуск 1С:Предприятия» -->
+    <DockPanel DockPanel.Dock="Right" Width="150" Margin="0,10,12,10">
+      <Button x:Name="КнВыход" DockPanel.Dock="Bottom" Classes="column" Content="Выход" />
+      <StackPanel Spacing="6">
+        <Button x:Name="КнОткрыть" Classes="column primary" Content="1С-мини" />
+        <Button x:Name="КнКонфигуратор" Classes="column" Content="Конфигуратор" />
+        <Border Height="14" />
+        <Button x:Name="КнДобавить" Classes="column" Content="Добавить…" />
+        <Button x:Name="КнИзменить" Classes="column" Content="Изменить…" />
+        <Button x:Name="КнУдалить" Classes="column" Content="Удалить" />
+      </StackPanel>
+    </DockPanel>
+
+    <!-- список информационных баз -->
+    <Border Classes="pane" BorderThickness="1" Margin="12,0,0,0">
+      <ScrollViewer>
+        <ListBox x:Name="Список" Background="White">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Classes="baseItem">
+                <TextBlock Classes="baseIcon" Text="🗔" />
+                <TextBlock Text="{Binding Имя}" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </ScrollViewer>
+    </Border>
+  </DockPanel>
+</Window>

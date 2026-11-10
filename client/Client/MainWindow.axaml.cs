@@ -1,21 +1,21 @@
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Layout;
+using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using OneC.Core;
 
 namespace Client;
 
-public class MainWindow : Window
+/// <summary>Главное окно клиента. Разметка — MainWindow.axaml, внешний вид — App.axaml.</summary>
+public partial class MainWindow : Window
 {
     readonly string _корень;
     readonly Конфигурация _конфиг;
     readonly База _база;
 
-    readonly TreeView _дерево = new() { Margin = new Thickness(4) };
-    readonly StackPanel _шапкаТаблицы = Шаблон.КоманднаяПанель();
-    readonly ListBox _списокЗаписей = new();
-    readonly TextBlock _статус = Шаблон.Статус();
+    readonly TreeView _дерево;
+    readonly StackPanel _шапкаТаблицы;
+    readonly ListBox _списокЗаписей;
+    readonly TextBlock _статус;
     readonly Button _кнДобавить, _кнИзменить, _кнУдалить, _кнОбновить;
 
     ОбъектМетаданных? _текущий;
@@ -23,40 +23,27 @@ public class MainWindow : Window
 
     public MainWindow(string кореньПроекта)
     {
+        AvaloniaXamlLoader.Load(this);
+        _дерево = this.FindControl<TreeView>("Дерево")!;
+        _шапкаТаблицы = this.FindControl<StackPanel>("ШапкаТаблицы")!;
+        _списокЗаписей = this.FindControl<ListBox>("СписокЗаписей")!;
+        _статус = this.FindControl<TextBlock>("Статус")!;
+        _кнДобавить = this.FindControl<Button>("КнДобавить")!;
+        _кнИзменить = this.FindControl<Button>("КнИзменить")!;
+        _кнУдалить = this.FindControl<Button>("КнУдалить")!;
+        _кнОбновить = this.FindControl<Button>("КнОбновить")!;
+
         _корень = кореньПроекта;
         _конфиг = ЗагрузчикМетаданных.Загрузить(Path.Combine(_корень, "metadata"));
         var файлБД = Path.Combine(_корень, "data", "app.db");
         _база = new База(файлБД, _конфиг);
 
         Title = $"{_конфиг.Представление()} — 1С-мини клиент";
-        Width = 1100; Height = 700;
 
-        _кнДобавить = Шаблон.Кнопка("Добавить", ДобавитьЗапись);
-        _кнИзменить = Шаблон.Кнопка("Изменить", ИзменитьЗапись);
-        _кнУдалить = Шаблон.Кнопка("Удалить", УдалитьЗапись);
-        _кнОбновить = Шаблон.Кнопка("Обновить", () => { ПоказатьСписок(); return Task.CompletedTask; });
-
-        var панельКнопок = Шаблон.КоманднаяПанель(_кнДобавить, _кнИзменить, _кнУдалить, _кнОбновить);
-
-        var право = new DockPanel();
-        DockPanel.SetDock(панельКнопок, Dock.Top);
-        DockPanel.SetDock(_шапкаТаблицы, Dock.Top);
-        DockPanel.SetDock(_статус, Dock.Bottom);
-        право.Children.Add(панельКнопок);
-        право.Children.Add(_шапкаТаблицы);
-        право.Children.Add(_статус);
-        право.Children.Add(new ScrollViewer { Content = _списокЗаписей });
-
-        var сетка = new Grid { ColumnDefinitions = new ColumnDefinitions("280,4,*") };
-        var левоРамка = Шаблон.Рамка(new ScrollViewer { Content = _дерево }, new Thickness(0, 0, 1, 0));
-        Grid.SetColumn(левоРамка, 0);
-        var разделитель = new GridSplitter { Background = Brushes.Transparent };
-        Grid.SetColumn(разделитель, 1);
-        Grid.SetColumn(право, 2);
-        сетка.Children.Add(левоРамка);
-        сетка.Children.Add(разделитель);
-        сетка.Children.Add(право);
-        Content = сетка;
+        _кнДобавить.Click += async (_, _) => await ДобавитьЗапись();
+        _кнИзменить.Click += async (_, _) => await ИзменитьЗапись();
+        _кнУдалить.Click += async (_, _) => await УдалитьЗапись();
+        _кнОбновить.Click += (_, _) => ПоказатьСписок();
 
         ПостроитьДерево();
         _дерево.SelectionChanged += (_, _) =>
@@ -136,7 +123,7 @@ public class MainWindow : Window
         var строки = _база.Выбрать(таблица, колонки.FirstOrDefault());
         foreach (var строка in строки)
         {
-            var панель = new StackPanel { Orientation = Orientation.Horizontal };
+            var панель = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
             foreach (var к in колонки)
             {
                 var значение = строка.TryGetValue(к, out var v) ? v?.ToString() ?? "" : "";
@@ -181,7 +168,7 @@ public class MainWindow : Window
 
         var имя = строка.TryGetValue("Наименование", out var н) ? н?.ToString() :
                   строка.TryGetValue("Номер", out var номер) ? номер?.ToString() : "";
-        var да = await Диалоги.Вопрос(this, $"Объект «{имя}» будет удален. Продолжить?");
+        var да = await Шаблон.Вопрос(this, $"Объект «{имя}» будет удален. Продолжить?");
         if (!да) return;
 
         _база.Удалить(таблица, ключ, строка[ключ]?.ToString() ?? "");

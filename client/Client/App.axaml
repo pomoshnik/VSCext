@@ -1,0 +1,129 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Client.App"
+             RequestedThemeVariant="Light">
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <!-- ===================================================================
+         ТЕМА КЛИЕНТА 1С-МИНИ.
+         Весь внешний вид настраивается здесь: цвета, размеры, отступы.
+         Элементы в окнах (.axaml) и в генерируемых формах (Шаблон.cs)
+         только ссылаются на классы стилей.
+         =================================================================== -->
+
+    <!-- Окна -->
+    <Style Selector="Window">
+      <Setter Property="Background" Value="White" />
+    </Style>
+
+    <!-- Кнопки -->
+    <Style Selector="Button">
+      <Setter Property="Padding" Value="14,6" />
+    </Style>
+    <!-- основная кнопка формы («Записать и закрыть», «1С-мини») -->
+    <Style Selector="Button.primary">
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <!-- кнопка диалога (ОК/Отмена/Да/Нет) -->
+    <Style Selector="Button.dialog">
+      <Setter Property="Width" Value="90" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <!-- кнопка правого столбца окна запуска -->
+    <Style Selector="Button.column">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+
+    <!-- Списки -->
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="6,3" />
+    </Style>
+
+    <!-- Тексты -->
+    <!-- зелёный заголовок раздела, как «Информационные базы» в 1С -->
+    <Style Selector="TextBlock.sectionHeader">
+      <Setter Property="Foreground" Value="#1a7f1a" />
+      <Setter Property="Margin" Value="12,10,12,4" />
+    </Style>
+    <!-- серый статус/путь внизу окна -->
+    <Style Selector="TextBlock.status">
+      <Setter Property="Foreground" Value="Gray" />
+      <Setter Property="Margin" Value="8,6" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <!-- ошибки бизнес-логики на форме записи -->
+    <Style Selector="TextBlock.error">
+      <Setter Property="Foreground" Value="Firebrick" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Margin" Value="0,6,0,0" />
+    </Style>
+    <!-- подпись поля на форме записи -->
+    <Style Selector="TextBlock.fieldLabel">
+      <Setter Property="Width" Value="170" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- ячейка списка записей -->
+    <Style Selector="TextBlock.cell">
+      <Setter Property="Width" Value="160" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <!-- ячейка шапки списка записей -->
+    <Style Selector="TextBlock.headerCell">
+      <Setter Property="Width" Value="160" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- синий значок информационной базы -->
+    <Style Selector="TextBlock.baseIcon">
+      <Setter Property="Foreground" Value="#4a7ebb" />
+    </Style>
+
+    <!-- Редакторы полей -->
+    <Style Selector="TextBox.field">
+      <Setter Property="MinWidth" Value="280" />
+    </Style>
+    <Style Selector="ComboBox.field">
+      <Setter Property="MinWidth" Value="280" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+
+    <!-- Панели -->
+    <!-- горизонтальная командная панель над списком -->
+    <Style Selector="StackPanel.commandBar">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Spacing" Value="6" />
+      <Setter Property="Margin" Value="8,6" />
+    </Style>
+    <!-- вертикальная панель полей формы записи -->
+    <Style Selector="StackPanel.formPanel">
+      <Setter Property="Spacing" Value="8" />
+      <Setter Property="Margin" Value="16" />
+    </Style>
+    <!-- строка формы: подпись + редактор -->
+    <Style Selector="StackPanel.formRow">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Spacing" Value="8" />
+    </Style>
+    <!-- кнопки внизу формы/диалога, выровненные вправо -->
+    <Style Selector="StackPanel.buttonsRight">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Spacing" Value="8" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="Margin" Value="0,10,0,0" />
+    </Style>
+    <!-- элемент списка информационных баз -->
+    <Style Selector="StackPanel.baseItem">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Spacing" Value="8" />
+      <Setter Property="Margin" Value="4,3" />
+    </Style>
+
+    <!-- Рамки панелей -->
+    <Style Selector="Border.pane">
+      <Setter Property="BorderBrush" Value="LightGray" />
+    </Style>
+  </Application.Styles>
+</Application>

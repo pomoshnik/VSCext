@@ -1,18 +1,13 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Themes.Fluent;
+using Avalonia.Markup.Xaml;
 using OneC.Core;
 
 namespace Client;
 
-public class App : Application
+public partial class App : Application
 {
-    public override void Initialize()
-    {
-        Styles.Add(new FluentTheme());
-        foreach (var стиль in Шаблон.ГлобальныеСтили()) Styles.Add(стиль);
-        RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
-    }
+    public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
     {

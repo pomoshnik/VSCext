@@ -1,0 +1,32 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Client.MainWindow"
+        Width="1100" Height="700">
+
+  <Grid ColumnDefinitions="280,4,*">
+
+    <!-- дерево объектов конфигурации -->
+    <Border Grid.Column="0" Classes="pane" BorderThickness="0,0,1,0">
+      <ScrollViewer>
+        <TreeView x:Name="Дерево" Margin="4" />
+      </ScrollViewer>
+    </Border>
+
+    <GridSplitter Grid.Column="1" Background="Transparent" />
+
+    <!-- список записей выбранного объекта -->
+    <DockPanel Grid.Column="2">
+      <StackPanel DockPanel.Dock="Top" Classes="commandBar">
+        <Button x:Name="КнДобавить" Content="Добавить" />
+        <Button x:Name="КнИзменить" Content="Изменить" />
+        <Button x:Name="КнУдалить" Content="Удалить" />
+        <Button x:Name="КнОбновить" Content="Обновить" />
+      </StackPanel>
+      <StackPanel x:Name="ШапкаТаблицы" DockPanel.Dock="Top" Classes="commandBar" />
+      <TextBlock x:Name="Статус" DockPanel.Dock="Bottom" Classes="status" />
+      <ScrollViewer>
+        <ListBox x:Name="СписокЗаписей" />
+      </ScrollViewer>
+    </DockPanel>
+  </Grid>
+</Window>

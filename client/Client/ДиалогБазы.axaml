@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Client.ДиалогБазы"
+        Title="Информационная база"
+        Width="520" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner">
+
+  <StackPanel Classes="formPanel">
+    <TextBlock Text="Наименование информационной базы:" />
+    <TextBox x:Name="ПолеИмя" />
+
+    <TextBlock Text="Каталог информационной базы:" Margin="0,8,0,0" />
+    <DockPanel>
+      <Button x:Name="КнОбзор" DockPanel.Dock="Right" Margin="6,0,0,0" Content="Обзор…" />
+      <TextBox x:Name="ПолеПуть" Watermark="Каталог с metadata/ и data/" />
+    </DockPanel>
+
+    <StackPanel Classes="buttonsRight">
+      <Button x:Name="КнОк" Classes="dialog" Content="ОК" />
+      <Button x:Name="КнОтмена" Classes="dialog" Content="Отмена" />
+    </StackPanel>
+  </StackPanel>
+</Window>
