@@ -153,6 +153,7 @@ function leafToJson(leaf) {
     if (leaf.table) j.Таблица = leaf.table;
     j.Реквизиты = (leaf.children || []).map(leafToJson);
   }
+  if (leaf.folderType === 'Формы' && leaf.form) j.Элементы = leaf.form;
   return j;
 }
 
@@ -177,6 +178,7 @@ function jsonToLeaf(j, folderType) {
     if (j.Таблица) leaf.table = j.Таблица;
     leaf.children = (j.Реквизиты || []).map(r => jsonToLeaf(r, 'Реквизиты'));
   }
+  if (folderType === 'Формы' && j.Элементы) leaf.form = j.Элементы;
   return leaf;
 }
 
@@ -406,8 +408,12 @@ class OnecTreeProvider {
     const item = new vscode.TreeItem(node.name, state);
     item.id = node.id;
     item.contextValue = node.kind === 'leaf' && node.folderType === 'Табличные части' ? 'tabular'
+      : node.kind === 'leaf' && node.folderType === 'Формы' ? 'form'
       : node.kind === 'object' && this.hasModule(node) ? 'objectM'
       : node.kind;
+    if (item.contextValue === 'form') {
+      item.command = { command: 'onecTree.openForm', title: 'Открыть форму', arguments: [node] };
+    }
     if (node.kind === 'root') {
       item.description = this.fileMode ? '' : '(демо, без папки проекта)';
       item.tooltip = this.fileMode ? 'Хранится в ' + this.storage.metadataDir : 'Откройте папку проекта, чтобы хранить конфигурацию в JSON-файлах';
@@ -687,6 +693,60 @@ async function cmdOpenModule(provider, treeView, storage, node) {
   await vscode.window.showTextDocument(doc);
 }
 
+// --- Визуальный редактор форм -------------------------------------------------
+
+const formEditor = require('./formeditor.js');
+const formPanels = new Map(); // node.id -> webview panel
+
+function objectInfoFor(provider, objNode) {
+  const def = classDefById(objNode.classId);
+  const byFolder = type => {
+    const f = (objNode.children || []).find(c => c.kind === 'folder' && c.folderType === type);
+    return f ? f.children : [];
+  };
+  return {
+    вид: def ? def.kind1c : '',
+    имя: objNode.name,
+    синоним: objNode.synonym || objNode.name,
+    стандартные: formEditor.standardFields(def ? def.kind1c : ''),
+    реквизиты: byFolder('Реквизиты').map(l => ({ имя: l.name, синоним: l.synonym || l.name, тип: l.type || 'Строка' })),
+    таблицы: byFolder('Табличные части').map(t => ({
+      имя: t.name, синоним: t.synonym || t.name,
+      реквизиты: (t.children || []).map(l => ({ имя: l.name, синоним: l.synonym || l.name }))
+    }))
+  };
+}
+
+function cmdOpenForm(provider, treeView, node) {
+  node = node || treeView.selection[0];
+  if (!node || node.folderType !== 'Формы') return;
+  const folder = provider.parents.get(node.id);
+  const objNode = folder ? provider.parents.get(folder.id) : null;
+  if (!objNode) return;
+
+  const info = objectInfoFor(provider, objNode);
+  if (!node.form || !node.form.length) node.form = formEditor.defaultElements(info);
+
+  let panel = formPanels.get(node.id);
+  if (panel) {
+    panel.webview.html = formEditor.html(info, node.name, node.form);
+    panel.reveal();
+    return;
+  }
+  panel = vscode.window.createWebviewPanel(
+    'onecForm', 'Форма: ' + objNode.name + '.' + node.name,
+    vscode.ViewColumn.Active,
+    { enableScripts: true, retainContextWhenHidden: true });
+  formPanels.set(node.id, panel);
+  panel.onDidDispose(() => formPanels.delete(node.id));
+  panel.webview.onDidReceiveMessage(msg => {
+    if (msg.type !== 'save') return;
+    node.form = msg.elements;
+    provider.refresh();
+  });
+  panel.webview.html = formEditor.html(info, node.name, node.form);
+}
+
 // --- Публикация в SQLite ------------------------------------------------------
 
 async function cmdPublish(provider, storage, context) {
@@ -904,6 +964,7 @@ function activate(context) {
     vscode.commands.registerCommand('onecTree.publish', () => cmdPublish(provider, storage, context)),
     vscode.commands.registerCommand('onecTree.publishDotnet', () => cmdPublishDotnet(storage)),
     vscode.commands.registerCommand('onecTree.debug', () => cmdDebug(storage)),
+    vscode.commands.registerCommand('onecTree.openForm', n => cmdOpenForm(provider, treeView, n)),
     vscode.commands.registerCommand('onecTree.init', () => cmdInit(provider, storage)),
     vscode.commands.registerCommand('onecTree.setType', async n => {
       n = n || treeView.selection[0];

@@ -20,10 +20,21 @@ public class ТабличнаяЧасть
     public List<Реквизит> Реквизиты { get; set; } = new();
 }
 
+public class ЭлементУправленияФормы
+{
+    public string Тип { get; set; } = "Поле";       // Поле | Таблица | Кнопка
+    public string? Реквизит { get; set; }
+    public string? ТабличнаяЧасть { get; set; }
+    public string? Заголовок { get; set; }
+    public string? Действие { get; set; }
+    public bool ТолькоПросмотр { get; set; }
+}
+
 public class ЭлементФормы
 {
     public string Имя { get; set; } = "";
     public string Синоним { get; set; } = "";
+    public List<ЭлементУправленияФормы>? Элементы { get; set; }
 }
 
 /// <summary>Объект метаданных: справочник, документ, регистр и т.д.</summary>

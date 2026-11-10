@@ -2,7 +2,7 @@
   "name": "onec-config-tree",
   "displayName": "Дерево конфигурации 1С",
   "description": "Дерево конфигурации в стиле 1С: хранение в JSON-файлах, модули бизнес-логики на C#, публикация в SQLite и клиент на Avalonia.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "arena-tools",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -84,6 +84,11 @@
         "command": "onecTree.debug",
         "title": "Запустить клиент с отладкой",
         "icon": "$(debug-alt)"
+      },
+      {
+        "command": "onecTree.openForm",
+        "title": "Открыть форму (визуальный редактор)",
+        "icon": "$(preview)"
       }
     ],
     "menus": {
@@ -126,6 +131,11 @@
       ],
       "view/item/context": [
         {
+          "command": "onecTree.openForm",
+          "when": "view == onecConfigTree && viewItem == form",
+          "group": "0_open@1"
+        },
+        {
           "command": "onecTree.add",
           "when": "view == onecConfigTree && viewItem =~ /^(root|class|object|objectM|folder|tabular)$/",
           "group": "inline@1"
@@ -137,7 +147,7 @@
         },
         {
           "command": "onecTree.delete",
-          "when": "view == onecConfigTree && viewItem =~ /^(object|objectM|leaf|tabular)$/",
+          "when": "view == onecConfigTree && viewItem =~ /^(object|objectM|leaf|tabular|form)$/",
           "group": "inline@3"
         },
         {
@@ -157,12 +167,12 @@
         },
         {
           "command": "onecTree.rename",
-          "when": "view == onecConfigTree && viewItem =~ /^(root|object|objectM|leaf|tabular)$/",
+          "when": "view == onecConfigTree && viewItem =~ /^(root|object|objectM|leaf|tabular|form)$/",
           "group": "5_modify@1"
         },
         {
           "command": "onecTree.delete",
-          "when": "view == onecConfigTree && viewItem =~ /^(object|objectM|leaf|tabular)$/",
+          "when": "view == onecConfigTree && viewItem =~ /^(object|objectM|leaf|tabular|form)$/",
           "group": "5_modify@2"
         },
         {
