@@ -1,0 +1,173 @@
+{
+  "name": "onec-config-tree",
+  "displayName": "Дерево конфигурации 1С",
+  "description": "Дерево конфигурации в стиле 1С: хранение в JSON-файлах, модули бизнес-логики на C#, публикация в SQLite и клиент на Avalonia.",
+  "version": "0.2.0",
+  "publisher": "arena-tools",
+  "license": "MIT",
+  "icon": "media/logo.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "onecExplorer",
+          "title": "Конфигуратор 1С",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "onecExplorer": [
+        {
+          "id": "onecConfigTree",
+          "name": "Конфигурация"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "onecTree.add",
+        "title": "Добавить",
+        "icon": "$(add)"
+      },
+      {
+        "command": "onecTree.delete",
+        "title": "Удалить",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "onecTree.properties",
+        "title": "Свойства",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "onecTree.rename",
+        "title": "Переименовать",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "onecTree.openModule",
+        "title": "Открыть модуль объекта (C#)",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "onecTree.setType",
+        "title": "Изменить тип значения"
+      },
+      {
+        "command": "onecTree.publish",
+        "title": "Опубликовать в SQLite",
+        "icon": "$(database)"
+      },
+      {
+        "command": "onecTree.init",
+        "title": "1С: Инициализировать проект конфигурации"
+      },
+      {
+        "command": "onecTree.refresh",
+        "title": "Обновить",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "onecTree.add",
+          "when": "view == onecConfigTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "onecTree.delete",
+          "when": "view == onecConfigTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "onecTree.properties",
+          "when": "view == onecConfigTree",
+          "group": "navigation@3"
+        },
+        {
+          "command": "onecTree.publish",
+          "when": "view == onecConfigTree",
+          "group": "navigation@4"
+        },
+        {
+          "command": "onecTree.refresh",
+          "when": "view == onecConfigTree",
+          "group": "navigation@5"
+        },
+        {
+          "command": "onecTree.init",
+          "when": "view == onecConfigTree",
+          "group": "9_other@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "onecTree.add",
+          "when": "view == onecConfigTree && viewItem =~ /^(root|class|object|objectM|folder|tabular)$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "onecTree.openModule",
+          "when": "view == onecConfigTree && viewItem == objectM",
+          "group": "inline@2"
+        },
+        {
+          "command": "onecTree.delete",
+          "when": "view == onecConfigTree && viewItem =~ /^(object|objectM|leaf|tabular)$/",
+          "group": "inline@3"
+        },
+        {
+          "command": "onecTree.add",
+          "when": "view == onecConfigTree && viewItem =~ /^(root|class|object|objectM|folder|tabular)$/",
+          "group": "1_new@1"
+        },
+        {
+          "command": "onecTree.openModule",
+          "when": "view == onecConfigTree && viewItem == objectM",
+          "group": "2_module@1"
+        },
+        {
+          "command": "onecTree.setType",
+          "when": "view == onecConfigTree && viewItem =~ /^(object|leaf)$/",
+          "group": "2_module@2"
+        },
+        {
+          "command": "onecTree.rename",
+          "when": "view == onecConfigTree && viewItem =~ /^(root|object|objectM|leaf|tabular)$/",
+          "group": "5_modify@1"
+        },
+        {
+          "command": "onecTree.delete",
+          "when": "view == onecConfigTree && viewItem =~ /^(object|objectM|leaf|tabular)$/",
+          "group": "5_modify@2"
+        },
+        {
+          "command": "onecTree.publish",
+          "when": "view == onecConfigTree && viewItem == root",
+          "group": "7_publish@1"
+        },
+        {
+          "command": "onecTree.properties",
+          "when": "view == onecConfigTree",
+          "group": "9_props@1"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^2.26.0"
+  }
+}
