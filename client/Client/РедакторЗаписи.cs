@@ -14,11 +14,7 @@ public class РедакторЗаписи : Window
     readonly Dictionary<string, object?>? _исходная;
     readonly Dictionary<string, Func<object?>> _чтение = new();
     readonly Dictionary<string, Action<object?>> _запись = new();
-    readonly TextBlock _ошибки = new()
-    {
-        Foreground = Brushes.Firebrick, TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(0, 6, 0, 0), IsVisible = false
-    };
+    readonly TextBlock _ошибки = Шаблон.ТекстОшибки();
 
     public РедакторЗаписи(Конфигурация конфиг, База база, ОбъектМетаданных объект, Dictionary<string, object?>? строка)
     {
@@ -29,23 +25,23 @@ public class РедакторЗаписи : Window
         Width = 520; SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-        var поляПанель = new StackPanel { Spacing = 8, Margin = new Thickness(16) };
+        var поляПанель = Шаблон.ПанельФормы();
 
         void Поле(string имя, string подпись, string тип, bool толькоПросмотр = false)
         {
-            var метка = new TextBlock { Text = подпись, Width = 170, VerticalAlignment = VerticalAlignment.Center };
+            var метка = Шаблон.Подпись(подпись);
             Control редактор;
 
             if (тип == "Булево")
             {
-                var флажок = new CheckBox();
+                var флажок = Шаблон.Флажок();
                 _чтение[имя] = () => флажок.IsChecked == true ? 1 : 0;
                 _запись[имя] = v => флажок.IsChecked = v?.ToString() is "1" or "True" or "true";
                 редактор = флажок;
             }
             else if (тип.Contains("Ссылка."))
             {
-                var комбо = new ComboBox { MinWidth = 280, HorizontalAlignment = HorizontalAlignment.Stretch };
+                var комбо = Шаблон.ПолеВыбора();
                 комбо.Items.Add(new ComboBoxItem { Content = "<не выбрано>", Tag = "" });
                 foreach (var (ссылка, представление) in база.СписокВыбора(тип))
                     комбо.Items.Add(new ComboBoxItem { Content = представление, Tag = ссылка });
@@ -62,17 +58,14 @@ public class РедакторЗаписи : Window
             }
             else
             {
-                var текст = new TextBox { MinWidth = 280 };
+                var текст = Шаблон.ПолеВвода();
                 _чтение[имя] = () => текст.Text ?? "";
                 _запись[имя] = v => текст.Text = v?.ToString() ?? "";
                 редактор = текст;
             }
 
             if (толькоПросмотр) редактор.IsEnabled = false;
-            var строкаПанель = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            строкаПанель.Children.Add(метка);
-            строкаПанель.Children.Add(редактор);
-            поляПанель.Children.Add(строкаПанель);
+            поляПанель.Children.Add(Шаблон.СтрокаФормы(метка, редактор));
         }
 
         // Тип реквизита по имени (стандартные + объявленные)
@@ -129,20 +122,11 @@ public class РедакторЗаписи : Window
                 if (_запись.TryGetValue(имя, out var установить)) установить(значение);
         }
 
-        var ок = new Button { Content = "Записать и закрыть", Padding = new Thickness(14, 6) };
-        var отмена = new Button { Content = "Отмена", Padding = new Thickness(14, 6) };
-        ок.Click += (_, _) => Сохранить();
-        отмена.Click += (_, _) => Close(false);
+        var ок = Шаблон.Кнопка("Записать и закрыть", Сохранить, основная: true);
+        var отмена = Шаблон.Кнопка("Отмена", () => Close(false));
 
-        var кнопки = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0)
-        };
-        кнопки.Children.Add(ок);
-        кнопки.Children.Add(отмена);
         поляПанель.Children.Add(_ошибки);
-        поляПанель.Children.Add(кнопки);
+        поляПанель.Children.Add(Шаблон.ПанельКнопокСправа(ок, отмена));
         Content = new ScrollViewer { Content = поляПанель };
     }
 
@@ -189,31 +173,8 @@ public static class РасширенияЗаписи
     public static string ПолноеИмяОбъекта(this ОбъектМетаданных о) => о.ПолноеИмя;
 }
 
-/// <summary>Простые диалоги (вопрос/сообщение).</summary>
+/// <summary>Простые диалоги — реализация в Шаблон, здесь только совместимое имя.</summary>
 public static class Диалоги
 {
-    public static async Task<bool> Вопрос(Window владелец, string текст)
-    {
-        var окно = new Window
-        {
-            Title = "1С-мини клиент", Width = 420, SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner
-        };
-        var да = new Button { Content = "Да", Padding = new Thickness(18, 6) };
-        var нет = new Button { Content = "Нет", Padding = new Thickness(18, 6) };
-        да.Click += (_, _) => окно.Close(true);
-        нет.Click += (_, _) => окно.Close(false);
-        var кнопки = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0)
-        };
-        кнопки.Children.Add(да);
-        кнопки.Children.Add(нет);
-        var панель = new StackPanel { Margin = new Thickness(16) };
-        панель.Children.Add(new TextBlock { Text = текст, TextWrapping = TextWrapping.Wrap });
-        панель.Children.Add(кнопки);
-        окно.Content = панель;
-        return await окно.ShowDialog<bool>(владелец);
-    }
+    public static Task<bool> Вопрос(Window владелец, string текст) => Шаблон.Вопрос(владелец, текст);
 }

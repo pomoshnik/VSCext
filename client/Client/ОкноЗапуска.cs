@@ -17,13 +17,7 @@ public class ИнформационнаяБаза
 public class ОкноЗапуска : Window
 {
     readonly ListBox _список = new() { Background = Brushes.White };
-    readonly TextBlock _путьВнизу = new()
-    {
-        Margin = new Thickness(10, 6),
-        Foreground = Brushes.Gray,
-        FontSize = 12,
-        TextTrimming = TextTrimming.CharacterEllipsis
-    };
+    readonly TextBlock _путьВнизу = Шаблон.Статус();
     List<ИнформационнаяБаза> _базы = new();
 
     static string ФайлСписка => Path.Combine(
@@ -36,12 +30,7 @@ public class ОкноЗапуска : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         CanResize = true;
 
-        var заголовок = new TextBlock
-        {
-            Text = "Информационные базы",
-            Foreground = new SolidColorBrush(Color.Parse("#1a7f1a")),
-            Margin = new Thickness(12, 10, 12, 4)
-        };
+        var заголовок = Шаблон.ЗаголовокРаздела("Информационные базы");
 
         // --- кнопки справа ---
         var кнОткрыть = Кнопка("1С-мини", Открыть, жирная: true);
@@ -66,13 +55,8 @@ public class ОкноЗапуска : Window
         // --- список баз ---
         _список.DoubleTapped += async (_, _) => await Открыть();
         _список.SelectionChanged += (_, _) => ПоказатьПуть();
-        var рамкаСписка = new Border
-        {
-            BorderBrush = Brushes.LightGray,
-            BorderThickness = new Thickness(1),
-            Margin = new Thickness(12, 0, 0, 0),
-            Child = new ScrollViewer { Content = _список }
-        };
+        var рамкаСписка = Шаблон.Рамка(new ScrollViewer { Content = _список }, new Thickness(1));
+        рамкаСписка.Margin = new Thickness(12, 0, 0, 0);
 
         var сетка = new DockPanel();
         DockPanel.SetDock(заголовок, Dock.Top);
@@ -123,13 +107,7 @@ public class ОкноЗапуска : Window
     void ОбновитьСписок(int выбрать = -1)
     {
         var старый = выбрать >= 0 ? выбрать : _список.SelectedIndex;
-        _список.ItemsSource = _базы.Select(б =>
-        {
-            var панель = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(4, 3) };
-            панель.Children.Add(new TextBlock { Text = "🗔", Foreground = new SolidColorBrush(Color.Parse("#4a7ebb")) });
-            панель.Children.Add(new TextBlock { Text = б.Имя });
-            return панель;
-        }).ToList();
+        _список.ItemsSource = _базы.Select(б => Шаблон.ЭлементСпискаБаз(б.Имя)).ToList();
         if (_базы.Count > 0)
             _список.SelectedIndex = Math.Clamp(старый < 0 ? 0 : старый, 0, _базы.Count - 1);
         ПоказатьПуть();
@@ -200,33 +178,10 @@ public class ОкноЗапуска : Window
 
     // ------------------------------------------------------------------ вспомогательное
 
-    Button Кнопка(string текст, Func<Task> действие, bool жирная = false)
-    {
-        var кн = new Button
-        {
-            Content = текст,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-            FontWeight = жирная ? FontWeight.Bold : FontWeight.Normal
-        };
-        кн.Click += async (_, _) => await действие();
-        return кн;
-    }
+    Button Кнопка(string текст, Func<Task> действие, bool жирная = false) =>
+        Шаблон.КнопкаСтолбца(текст, действие, жирная);
 
-    async Task Сообщение(string текст)
-    {
-        var ок = new Button { Content = "ОК", HorizontalAlignment = HorizontalAlignment.Center, Width = 90 };
-        var панель = new StackPanel { Margin = new Thickness(18), Spacing = 14 };
-        панель.Children.Add(new TextBlock { Text = текст, TextWrapping = TextWrapping.Wrap });
-        панель.Children.Add(ок);
-        var окно = new Window
-        {
-            Title = "1С-мини", Width = 420, SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = панель
-        };
-        ок.Click += (_, _) => окно.Close();
-        await окно.ShowDialog(this);
-    }
+    Task Сообщение(string текст) => Шаблон.Сообщение(this, текст);
 
     internal static string? НайтиКореньПроекта()
     {
@@ -253,38 +208,34 @@ public class ДиалогБазы : Window
         Width = 520; SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-        var имя = new TextBox { Text = база.Имя };
-        var путь = new TextBox { Text = база.Путь, Watermark = "Каталог с metadata/ и data/" };
+        var имя = Шаблон.ПолеВвода();
+        имя.Text = база.Имя;
+        var путь = Шаблон.ПолеВвода();
+        путь.Text = база.Путь;
+        путь.Watermark = "Каталог с metadata/ и data/";
 
-        var кнОбзор = new Button { Content = "Обзор…" };
-        кнОбзор.Click += async (_, _) =>
+        Button кнОбзор = null!;
+        кнОбзор = Шаблон.Кнопка("Обзор…", async () =>
         {
             var выбор = await StorageProvider.OpenFolderPickerAsync(
                 new Avalonia.Platform.Storage.FolderPickerOpenOptions { Title = "Каталог информационной базы" });
             if (выбор.Count > 0) путь.Text = выбор[0].Path.LocalPath;
-        };
+        });
         var строкаПути = new DockPanel();
         DockPanel.SetDock(кнОбзор, Dock.Right);
         кнОбзор.Margin = new Thickness(6, 0, 0, 0);
         строкаПути.Children.Add(кнОбзор);
         строкаПути.Children.Add(путь);
 
-        var кнОк = new Button { Content = "ОК", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Center };
-        var кнОтмена = new Button { Content = "Отмена", Width = 90, HorizontalContentAlignment = HorizontalAlignment.Center };
-        кнОк.Click += (_, _) =>
+        var кнОк = Шаблон.КнопкаДиалога("ОК", () =>
         {
             база.Имя = string.IsNullOrWhiteSpace(имя.Text) ? "Без имени" : имя.Text!.Trim();
             база.Путь = (путь.Text ?? "").Trim();
             Close(true);
-        };
-        кнОтмена.Click += (_, _) => Close(false);
-        var кнопки = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 8,
-            HorizontalAlignment = HorizontalAlignment.Right
-        };
-        кнопки.Children.Add(кнОк);
-        кнопки.Children.Add(кнОтмена);
+        });
+        var кнОтмена = Шаблон.КнопкаДиалога("Отмена", () => Close(false));
+        var кнопки = Шаблон.ПанельКнопокСправа(кнОк, кнОтмена);
+        кнопки.Margin = new Thickness(0);
 
         var панель = new StackPanel { Margin = new Thickness(16), Spacing = 8 };
         панель.Children.Add(new TextBlock { Text = "Наименование информационной базы:" });

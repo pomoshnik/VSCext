@@ -13,9 +13,9 @@ public class MainWindow : Window
     readonly База _база;
 
     readonly TreeView _дерево = new() { Margin = new Thickness(4) };
-    readonly StackPanel _шапкаТаблицы = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 4) };
+    readonly StackPanel _шапкаТаблицы = Шаблон.КоманднаяПанель();
     readonly ListBox _списокЗаписей = new();
-    readonly TextBlock _статус = new() { Margin = new Thickness(8, 4), Foreground = Brushes.Gray };
+    readonly TextBlock _статус = Шаблон.Статус();
     readonly Button _кнДобавить, _кнИзменить, _кнУдалить, _кнОбновить;
 
     ОбъектМетаданных? _текущий;
@@ -31,19 +31,12 @@ public class MainWindow : Window
         Title = $"{_конфиг.Представление()} — 1С-мини клиент";
         Width = 1100; Height = 700;
 
-        _кнДобавить = Кнопка("Добавить", ДобавитьЗапись);
-        _кнИзменить = Кнопка("Изменить", ИзменитьЗапись);
-        _кнУдалить = Кнопка("Удалить", УдалитьЗапись);
-        _кнОбновить = Кнопка("Обновить", () => { ПоказатьСписок(); return Task.CompletedTask; });
+        _кнДобавить = Шаблон.Кнопка("Добавить", ДобавитьЗапись);
+        _кнИзменить = Шаблон.Кнопка("Изменить", ИзменитьЗапись);
+        _кнУдалить = Шаблон.Кнопка("Удалить", УдалитьЗапись);
+        _кнОбновить = Шаблон.Кнопка("Обновить", () => { ПоказатьСписок(); return Task.CompletedTask; });
 
-        var панельКнопок = new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(8, 6)
-        };
-        панельКнопок.Children.Add(_кнДобавить);
-        панельКнопок.Children.Add(_кнИзменить);
-        панельКнопок.Children.Add(_кнУдалить);
-        панельКнопок.Children.Add(_кнОбновить);
+        var панельКнопок = Шаблон.КоманднаяПанель(_кнДобавить, _кнИзменить, _кнУдалить, _кнОбновить);
 
         var право = new DockPanel();
         DockPanel.SetDock(панельКнопок, Dock.Top);
@@ -55,11 +48,7 @@ public class MainWindow : Window
         право.Children.Add(new ScrollViewer { Content = _списокЗаписей });
 
         var сетка = new Grid { ColumnDefinitions = new ColumnDefinitions("280,4,*") };
-        var левоРамка = new Border
-        {
-            BorderBrush = Brushes.LightGray, BorderThickness = new Thickness(0, 0, 1, 0),
-            Child = new ScrollViewer { Content = _дерево }
-        };
+        var левоРамка = Шаблон.Рамка(new ScrollViewer { Content = _дерево }, new Thickness(0, 0, 1, 0));
         Grid.SetColumn(левоРамка, 0);
         var разделитель = new GridSplitter { Background = Brushes.Transparent };
         Grid.SetColumn(разделитель, 1);
@@ -79,13 +68,6 @@ public class MainWindow : Window
             }
         };
         _списокЗаписей.DoubleTapped += async (_, _) => await ИзменитьЗапись();
-    }
-
-    static Button Кнопка(string текст, Func<Task> действие)
-    {
-        var б = new Button { Content = текст, Padding = new Thickness(14, 6) };
-        б.Click += async (_, _) => await действие();
-        return б;
     }
 
     void ПостроитьДерево()
@@ -143,11 +125,7 @@ public class MainWindow : Window
         _кнДобавить.IsEnabled = _кнИзменить.IsEnabled = _кнУдалить.IsEnabled = редактируемый;
 
         foreach (var к in колонки)
-            _шапкаТаблицы.Children.Add(new TextBlock
-            {
-                Text = к, Width = 160, FontWeight = FontWeight.SemiBold,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
+            _шапкаТаблицы.Children.Add(Шаблон.ЯчейкаШапки(к));
 
         if (!_база.ТаблицаЕсть(таблица))
         {
@@ -165,11 +143,7 @@ public class MainWindow : Window
                 var тип = ТипКолонки(_текущий, к);
                 if (тип != null && тип.Contains("Ссылка."))
                     значение = _база.Представление(тип, значение);
-                панель.Children.Add(new TextBlock
-                {
-                    Text = значение, Width = 160,
-                    TextTrimming = TextTrimming.CharacterEllipsis
-                });
+                панель.Children.Add(Шаблон.Ячейка(значение));
             }
             _списокЗаписей.Items.Add(new ListBoxItem { Content = панель, Tag = строка });
         }

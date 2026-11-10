@@ -10,6 +10,7 @@ public class App : Application
     public override void Initialize()
     {
         Styles.Add(new FluentTheme());
+        foreach (var стиль in Шаблон.ГлобальныеСтили()) Styles.Add(стиль);
         RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
     }
 
