@@ -20,27 +20,13 @@ public class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var корень = НайтиКореньПроекта(desktop.Args ?? Array.Empty<string>());
-            desktop.MainWindow = new MainWindow(корень);
+            var args = desktop.Args ?? Array.Empty<string>();
+            // путь базы в аргументах — открываем сразу (для запуска из отладчика/конфигуратора)
+            if (args.Length > 0 && Directory.Exists(Path.Combine(args[0], "metadata")))
+                desktop.MainWindow = new MainWindow(Path.GetFullPath(args[0]));
+            else
+                desktop.MainWindow = new ОкноЗапуска(); // окно выбора базы, как в 1С
         }
         base.OnFrameworkInitializationCompleted();
-    }
-
-    static string НайтиКореньПроекта(string[] args)
-    {
-        if (args.Length > 0 && Directory.Exists(Path.Combine(args[0], "metadata")))
-            return Path.GetFullPath(args[0]);
-
-        foreach (var старт in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
-        {
-            var каталог = new DirectoryInfo(старт);
-            while (каталог != null)
-            {
-                if (Directory.Exists(Path.Combine(каталог.FullName, "metadata")))
-                    return каталог.FullName;
-                каталог = каталог.Parent;
-            }
-        }
-        return Environment.CurrentDirectory;
     }
 }
