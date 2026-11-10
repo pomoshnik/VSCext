@@ -103,6 +103,45 @@ function classDefById(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Стабильные имена таблиц БД (не зависят от имени объекта, как в 1С)
+// ---------------------------------------------------------------------------
+
+const TABLE_PREFIX = { catalogs: 'cat', documents: 'doc', enums: 'enm', infoRegs: 'inf', accumRegs: 'acc' };
+const VT_PREFIX = 'vt';
+
+function nextTableName(model, prefix) {
+  let max = 0;
+  const re = new RegExp('^' + prefix + '_(\\d+)$');
+  const walk = n => {
+    if (n.table) {
+      const m = re.exec(n.table);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    (n.children || []).forEach(walk);
+  };
+  walk(model);
+  return prefix + '_' + String(max + 1).padStart(7, '0');
+}
+
+// Выдать стабильные имена таблиц всем, у кого их ещё нет (миграция старых метаданных)
+function assignTables(model) {
+  let changed = false;
+  for (const classNode of model.children) {
+    const prefix = TABLE_PREFIX[classNode.classId];
+    if (!prefix) continue;
+    for (const obj of classNode.children) {
+      if (!obj.table) { obj.table = nextTableName(model, prefix); changed = true; }
+      for (const folder of (obj.children || []).filter(c => c.kind === 'folder' && c.folderType === 'Табличные части')) {
+        for (const vt of folder.children || []) {
+          if (!vt.table) { vt.table = nextTableName(model, VT_PREFIX); changed = true; }
+        }
+      }
+    }
+  }
+  return changed;
+}
+
+// ---------------------------------------------------------------------------
 // JSON-сериализация (формат файлов metadata/)
 // ---------------------------------------------------------------------------
 
@@ -111,6 +150,7 @@ function leafToJson(leaf) {
   if (leaf.type) j.Тип = leaf.type;
   if (leaf.comment) j.Комментарий = leaf.comment;
   if (leaf.folderType === 'Табличные части') {
+    if (leaf.table) j.Таблица = leaf.table;
     j.Реквизиты = (leaf.children || []).map(leafToJson);
   }
   return j;
@@ -119,6 +159,8 @@ function leafToJson(leaf) {
 function objectToJson(node, def) {
   const j = { Вид: def.kind1c, Имя: node.name, Синоним: node.synonym || '', Комментарий: node.comment || '' };
   if (node.type) j.Тип = node.type;
+  if (node.table) j.Таблица = node.table;
+  if (node.module) j.Модуль = node.module;
   for (const folder of (node.children || []).filter(c => c.kind === 'folder')) {
     const key = FOLDER_DEFS[folder.folderType].json;
     j[key] = (folder.children || []).map(leafToJson);
@@ -132,6 +174,7 @@ function jsonToLeaf(j, folderType) {
   leaf.comment = j.Комментарий || '';
   if (j.Тип) leaf.type = j.Тип;
   if (folderType === 'Табличные части') {
+    if (j.Таблица) leaf.table = j.Таблица;
     leaf.children = (j.Реквизиты || []).map(r => jsonToLeaf(r, 'Реквизиты'));
   }
   return leaf;
@@ -142,6 +185,8 @@ function jsonToObject(j, def) {
   obj.synonym = j.Синоним || splitWords(obj.name);
   obj.comment = j.Комментарий || '';
   if (j.Тип) obj.type = j.Тип;
+  if (j.Таблица) obj.table = j.Таблица;
+  if (j.Модуль) obj.module = j.Модуль;
   for (const folder of obj.children.filter(c => c.kind === 'folder')) {
     const key = FOLDER_DEFS[folder.folderType].json;
     folder.children = (j[key] || []).map(item => jsonToLeaf(item, folder.folderType));
@@ -241,6 +286,7 @@ class Storage {
           o.synonym = j.Синоним || splitWords(j.Имя);
           o.comment = j.Комментарий || '';
           if (j.Тип) o.type = j.Тип;
+          if (j.Модуль) o.module = j.Модуль;
           target.children.push(o);
         }
       }
@@ -254,6 +300,7 @@ class Storage {
       const target = root.children[0].children.find(c => c.classId === def.id);
       loadDir(path.join(this.metadataDir, 'Общие', def.dir), def, target);
     }
+    this.migrated = assignTables(root);
     return root;
   }
 
@@ -277,6 +324,7 @@ class Storage {
           : (() => {
               const j = { Вид: def.kind1c, Имя: obj.name, Синоним: obj.synonym || '', Комментарий: obj.comment || '' };
               if (obj.type) j.Тип = obj.type;
+              if (obj.module) j.Модуль = obj.module;
               return j;
             })();
         const file = path.join(dir, obj.name + '.json');
@@ -314,6 +362,8 @@ class OnecTreeProvider {
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this.model = storage.isProject ? storage.load() : buildDefaultModel();
     this.fileMode = storage.isProject;
+    if (this.fileMode && storage.migrated) storage.save(this.model);
+    if (!this.fileMode) assignTables(this.model);
     this.index = new Map();
     this.parents = new Map();
     this.reindex();
@@ -445,6 +495,7 @@ async function cmdAdd(provider, treeView, node) {
     const obj = CLASS_DEFS.includes(def)
       ? mkObject(def, name)
       : mkNode('object', name, def.icon, { classId: def.id, typeLabel: def.prefix });
+    if (TABLE_PREFIX[def.id]) obj.table = nextTableName(provider.model, TABLE_PREFIX[def.id]);
     node.children.push(obj);
     provider.refresh();
     treeView.reveal(obj, { select: true, focus: true });
@@ -479,6 +530,7 @@ async function cmdAdd(provider, treeView, node) {
     const name = await askName('Новый: ' + def.prefix, autoName(folderNode, def.prefix));
     if (!name) return;
     const leaf = mkLeaf(folderNode.folderType, name);
+    if (folderNode.folderType === 'Табличные части') leaf.table = nextTableName(provider.model, VT_PREFIX);
     folderNode.children.push(leaf);
     provider.refresh();
     treeView.reveal(leaf, { select: true, focus: true });
@@ -513,12 +565,39 @@ async function cmdRename(provider, treeView, node) {
   }
   const name = await askName('Переименование: ' + node.name, node.name);
   if (!name || name === node.name) return;
+  const oldName = node.name;
   node.name = name;
   node.synonym = splitWords(name);
+  if (node.kind === 'object') renameModuleWithObject(provider.storage, node, oldName, name);
   provider.refresh();
 }
 
 // --- Модуль объекта на C# ---------------------------------------------------
+
+// При переименовании объекта переименовать файл модуля и поправить код в нём
+function renameModuleWithObject(storage, node, oldName, newName) {
+  const def = classDefById(node.classId);
+  if (!storage.root || !def || !MODULE_KINDS.has(def.kind1c)) return;
+  const dir = path.join(storage.root, 'src', 'BusinessLogic', 'Modules');
+  const oldFile = path.join(dir, node.module || (def.kind1c + '.' + oldName + '.cs'));
+  if (!fs.existsSync(oldFile)) return;
+
+  let text = fs.readFileSync(oldFile, 'utf8');
+  const pairs = [
+    ['"' + def.kind1c + '.' + oldName + '"', '"' + def.kind1c + '.' + newName + '"'],
+    [def.kind1c + oldName + 'Запись', def.kind1c + newName + 'Запись'],
+    ['Модуль' + def.kind1c + oldName, 'Модуль' + def.kind1c + newName],
+    [def.kind1c + '_' + oldName, def.kind1c + '_' + newName],
+    [def.kind1c + '.' + oldName, def.kind1c + '.' + newName]
+  ];
+  for (const [a, b] of pairs) text = text.split(a).join(b);
+
+  const newFile = path.join(dir, def.kind1c + '.' + newName + '.cs');
+  fs.writeFileSync(newFile, text, 'utf8');
+  if (path.resolve(newFile) !== path.resolve(oldFile)) fs.unlinkSync(oldFile);
+  node.module = path.basename(newFile);
+  vscode.window.showInformationMessage('Модуль переименован: ' + path.basename(newFile));
+}
 
 function moduleTemplate(kind1c, name) {
   // Для справочников и документов — типизированный модуль:
@@ -596,9 +675,13 @@ async function cmdOpenModule(provider, treeView, storage, node) {
   }
   const dir = path.join(storage.root, 'src', 'BusinessLogic', 'Modules');
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `${def.kind1c}.${node.name}.cs`);
+  const file = path.join(dir, node.module || `${def.kind1c}.${node.name}.cs`);
   if (!fs.existsSync(file)) {
     fs.writeFileSync(file, moduleTemplate(def.kind1c, node.name), 'utf8');
+  }
+  if (node.module !== path.basename(file)) {
+    node.module = path.basename(file);   // фиксируем имя модуля в метаданных
+    provider.refresh();
   }
   const doc = await vscode.workspace.openTextDocument(file);
   await vscode.window.showTextDocument(doc);
@@ -680,8 +763,10 @@ function cmdProperties(provider, treeView, node) {
       const n = provider.index.get(propNodeId);
       if (!n || msg.type !== 'set') return;
       if (msg.field === 'name') {
-        if (validateName(msg.value)) return;
+        if (validateName(msg.value) || msg.value === n.name) return;
+        const oldName = n.name;
         n.name = msg.value;
+        if (n.kind === 'object') renameModuleWithObject(provider.storage, n, oldName, msg.value);
       } else if (msg.field === 'synonym') n.synonym = msg.value;
       else if (msg.field === 'comment') n.comment = msg.value;
       else if (msg.field === 'type') n.type = msg.value;
@@ -736,6 +821,8 @@ function propsHtml(node, editable) {
     <tr><td class="lbl">Синоним</td><td><input id="synonym" value="${esc(node.synonym)}" ${dis}></td></tr>
     <tr><td class="lbl">Комментарий</td><td><input id="comment" value="${esc(node.comment)}" ${dis}></td></tr>
     ${typeRow}${versionRow}
+    ${node.table ? `<tr><td class="lbl">Таблица БД</td><td><div class="ro">${esc(node.table)}</div></td></tr>` : ''}
+    ${node.module ? `<tr><td class="lbl">Модуль</td><td><div class="ro">${esc(node.module)}</div></td></tr>` : ''}
     <tr><td class="lbl">Тип метаданных</td><td><div class="ro">${esc(nodeTypeLabel(node))}</div></td></tr>
   </table>
   <script>

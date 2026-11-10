@@ -24,37 +24,42 @@ function collect(model) {
     constants: cls('constants').children.map(o => ({ name: o.name, type: o.type || 'Строка' })),
     catalogs: [], documents: [], enums: [], infoRegs: [], accumRegs: []
   };
+  const vt = (o, legacyPrefix) => folderItems(o, 'Табличные части').map(t => ({
+    name: t.name,
+    table: t.table || `${legacyPrefix}_${o.name}_${t.name}`,
+    legacy: `${legacyPrefix}_${o.name}_${t.name}`,
+    attrs: (t.children || []).map(l => ({ name: l.name, type: l.type || 'Строка' }))
+  }));
   for (const o of cls('catalogs').children) {
     data.catalogs.push({
       name: o.name, synonym: o.synonym || o.name,
+      table: o.table || `Спр_${o.name}`, legacy: `Спр_${o.name}`,
       attrs: attrsOf(o, 'Реквизиты'),
-      tabulars: folderItems(o, 'Табличные части').map(t => ({
-        name: t.name,
-        attrs: (t.children || []).map(l => ({ name: l.name, type: l.type || 'Строка' }))
-      }))
+      tabulars: vt(o, 'Спр')
     });
   }
   for (const o of cls('documents').children) {
     data.documents.push({
       name: o.name, synonym: o.synonym || o.name,
+      table: o.table || `Док_${o.name}`, legacy: `Док_${o.name}`,
       attrs: attrsOf(o, 'Реквизиты'),
-      tabulars: folderItems(o, 'Табличные части').map(t => ({
-        name: t.name,
-        attrs: (t.children || []).map(l => ({ name: l.name, type: l.type || 'Строка' }))
-      }))
+      tabulars: vt(o, 'Док')
     });
   }
   for (const o of cls('enums').children) {
     data.enums.push({
       name: o.name, synonym: o.synonym || o.name,
+      table: o.table || `Переч_${o.name}`, legacy: `Переч_${o.name}`,
       values: folderItems(o, 'Значения').map(v => ({ name: v.name, synonym: v.synonym || v.name }))
     });
   }
   for (const o of cls('infoRegs').children) {
-    data.infoRegs.push({ name: o.name, dims: attrsOf(o, 'Измерения'), ress: attrsOf(o, 'Ресурсы'), attrs: attrsOf(o, 'Реквизиты') });
+    data.infoRegs.push({ name: o.name, table: o.table || `РегСвед_${o.name}`, legacy: `РегСвед_${o.name}`,
+      dims: attrsOf(o, 'Измерения'), ress: attrsOf(o, 'Ресурсы'), attrs: attrsOf(o, 'Реквизиты') });
   }
   for (const o of cls('accumRegs').children) {
-    data.accumRegs.push({ name: o.name, dims: attrsOf(o, 'Измерения'), ress: attrsOf(o, 'Ресурсы') });
+    data.accumRegs.push({ name: o.name, table: o.table || `РегНакоп_${o.name}`, legacy: `РегНакоп_${o.name}`,
+      dims: attrsOf(o, 'Измерения'), ress: attrsOf(o, 'Ресурсы') });
   }
   return data;
 }
@@ -110,6 +115,15 @@ async function publish(model, rootPath, extensionDir) {
 
   const data = collect(model);
 
+  // Миграция: старая таблица по имени объекта -> стабильное имя (данные сохраняются)
+  function migrate(legacy, now) {
+    if (legacy && now && legacy !== now && tableExists(legacy) && !tableExists(now)) {
+      db.run(`ALTER TABLE "${legacy}" RENAME TO "${now}"`);
+      log.push(`> ${legacy} переименована в ${now}`);
+      updated++;
+    }
+  }
+
   // Константы
   if (data.constants.length) {
     ensureTable('Константы', [['Имя', 'TEXT NOT NULL'], ['Значение', "TEXT DEFAULT ''"]], '"Имя"');
@@ -119,47 +133,54 @@ async function publish(model, rootPath, extensionDir) {
 
   // Справочники
   for (const c of data.catalogs) {
+    migrate(c.legacy, c.table);
     const cols = [['Ссылка', 'TEXT NOT NULL'], ['Код', "TEXT DEFAULT ''"], ['Наименование', "TEXT DEFAULT ''"], ['ПометкаУдаления', 'INTEGER DEFAULT 0']];
     cols.push(...c.attrs.map(a => [a.name, sqlType(a.type)]));
-    ensureTable(`Спр_${c.name}`, cols, '"Ссылка"');
+    ensureTable(c.table, cols, '"Ссылка"');
     for (const t of c.tabulars) {
+      migrate(t.legacy, t.table);
       const tc = [['Ссылка', 'TEXT NOT NULL'], ['НомерСтроки', 'INTEGER']];
       tc.push(...t.attrs.map(a => [a.name, sqlType(a.type)]));
-      ensureTable(`Спр_${c.name}_${t.name}`, tc);
+      ensureTable(t.table, tc);
     }
   }
 
   // Документы
   for (const d of data.documents) {
+    migrate(d.legacy, d.table);
     const cols = [['Ссылка', 'TEXT NOT NULL'], ['Номер', "TEXT DEFAULT ''"], ['Дата', "TEXT DEFAULT ''"], ['Проведен', 'INTEGER DEFAULT 0'], ['ПометкаУдаления', 'INTEGER DEFAULT 0']];
     cols.push(...d.attrs.map(a => [a.name, sqlType(a.type)]));
-    ensureTable(`Док_${d.name}`, cols, '"Ссылка"');
+    ensureTable(d.table, cols, '"Ссылка"');
     for (const t of d.tabulars) {
+      migrate(t.legacy, t.table);
       const tc = [['Ссылка', 'TEXT NOT NULL'], ['НомерСтроки', 'INTEGER']];
       tc.push(...t.attrs.map(a => [a.name, sqlType(a.type)]));
-      ensureTable(`Док_${d.name}_${t.name}`, tc);
+      ensureTable(t.table, tc);
     }
   }
 
   // Перечисления + значения
   for (const e of data.enums) {
-    ensureTable(`Переч_${e.name}`, [['Имя', 'TEXT NOT NULL'], ['Синоним', "TEXT DEFAULT ''"], ['Порядок', 'INTEGER DEFAULT 0']], '"Имя"');
+    migrate(e.legacy, e.table);
+    ensureTable(e.table, [['Имя', 'TEXT NOT NULL'], ['Синоним', "TEXT DEFAULT ''"], ['Порядок', 'INTEGER DEFAULT 0']], '"Имя"');
     e.values.forEach((v, i) =>
-      db.run(`INSERT OR REPLACE INTO "Переч_${e.name}"(Имя, Синоним, Порядок) VALUES(${quoteStr(v.name)}, ${quoteStr(v.synonym)}, ${i})`));
+      db.run(`INSERT OR REPLACE INTO "${e.table}"(Имя, Синоним, Порядок) VALUES(${quoteStr(v.name)}, ${quoteStr(v.synonym)}, ${i})`));
   }
 
   // Регистры сведений
   for (const r of data.infoRegs) {
+    migrate(r.legacy, r.table);
     const cols = [...r.dims, ...r.ress, ...r.attrs].map(a => [a.name, sqlType(a.type)]);
     const pk = r.dims.map(d => `"${d.name}"`).join(', ');
-    ensureTable(`РегСвед_${r.name}`, cols, pk || null);
+    ensureTable(r.table, cols, pk || null);
   }
 
   // Регистры накопления
   for (const r of data.accumRegs) {
+    migrate(r.legacy, r.table);
     const cols = [['Регистратор', "TEXT DEFAULT ''"], ['Период', "TEXT DEFAULT ''"], ['ВидДвижения', "TEXT DEFAULT 'Приход'"]];
     cols.push(...[...r.dims, ...r.ress].map(a => [a.name, sqlType(a.type)]));
-    ensureTable(`РегНакоп_${r.name}`, cols);
+    ensureTable(r.table, cols);
   }
 
   // Версия конфигурации

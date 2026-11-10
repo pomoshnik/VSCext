@@ -16,6 +16,7 @@ public class ТабличнаяЧасть
 {
     public string Имя { get; set; } = "";
     public string Синоним { get; set; } = "";
+    public string? Таблица { get; set; }      // стабильное имя таблицы (vt_0000001)
     public List<Реквизит> Реквизиты { get; set; } = new();
 }
 
@@ -33,6 +34,8 @@ public class ОбъектМетаданных
     public string Синоним { get; set; } = "";
     public string Комментарий { get; set; } = "";
     public string? Тип { get; set; }                       // для констант
+    public string? Таблица { get; set; }                   // стабильное имя таблицы (cat_0000001)
+    public string? Модуль { get; set; }                    // файл модуля бизнес-логики
     public List<Реквизит> Реквизиты { get; set; } = new();
     public List<Реквизит> Измерения { get; set; } = new();
     public List<Реквизит> Ресурсы { get; set; } = new();
