@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-client",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["build", "${workspaceFolder}/client/Client/Client.csproj", "-v", "q"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "build-publisher",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["build", "${workspaceFolder}/tools/Publisher/Publisher.csproj", "-v", "q"],
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

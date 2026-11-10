@@ -708,6 +708,20 @@ async function cmdPublish(provider, storage, context) {
   }
 }
 
+// Запуск клиента под отладчиком (точки останова в модулях бизнес-логики)
+async function cmdDebug(storage) {
+  if (!storage.root) {
+    vscode.window.showWarningMessage('Откройте папку проекта конфигурации.');
+    return;
+  }
+  const folder = vscode.workspace.workspaceFolders[0];
+  const started = await vscode.debug.startDebugging(folder, 'Клиент 1С-мини (отладка)');
+  if (!started) {
+    vscode.window.showErrorMessage(
+      'Не удалось запустить отладку. Нужны: расширение «C#» (ms-dotnettools.csharp), .NET SDK 8 и конфигурация «Клиент 1С-мини (отладка)» в .vscode/launch.json.');
+  }
+}
+
 // Резервный вариант — через консольный публикатор на .NET
 function cmdPublishDotnet(storage) {
   if (!storage.isProject) {
@@ -889,6 +903,7 @@ function activate(context) {
     vscode.commands.registerCommand('onecTree.openModule', n => cmdOpenModule(provider, treeView, storage, n)),
     vscode.commands.registerCommand('onecTree.publish', () => cmdPublish(provider, storage, context)),
     vscode.commands.registerCommand('onecTree.publishDotnet', () => cmdPublishDotnet(storage)),
+    vscode.commands.registerCommand('onecTree.debug', () => cmdDebug(storage)),
     vscode.commands.registerCommand('onecTree.init', () => cmdInit(provider, storage)),
     vscode.commands.registerCommand('onecTree.setType', async n => {
       n = n || treeView.selection[0];

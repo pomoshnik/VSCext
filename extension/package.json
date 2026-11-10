@@ -2,7 +2,7 @@
   "name": "onec-config-tree",
   "displayName": "Дерево конфигурации 1С",
   "description": "Дерево конфигурации в стиле 1С: хранение в JSON-файлах, модули бизнес-логики на C#, публикация в SQLite и клиент на Avalonia.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "arena-tools",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -79,6 +79,11 @@
       {
         "command": "onecTree.publishDotnet",
         "title": "1С: Публикация через dotnet (резервный вариант)"
+      },
+      {
+        "command": "onecTree.debug",
+        "title": "Запустить клиент с отладкой",
+        "icon": "$(debug-alt)"
       }
     ],
     "menus": {
@@ -104,9 +109,14 @@
           "group": "navigation@4"
         },
         {
-          "command": "onecTree.refresh",
+          "command": "onecTree.debug",
           "when": "view == onecConfigTree",
           "group": "navigation@5"
+        },
+        {
+          "command": "onecTree.refresh",
+          "when": "view == onecConfigTree",
+          "group": "navigation@6"
         },
         {
           "command": "onecTree.init",

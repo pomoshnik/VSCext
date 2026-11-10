@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Клиент 1С-мини (отладка)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-client",
+      "program": "${workspaceFolder}/client/Client/bin/Debug/net8.0/Client.dll",
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Публикатор (отладка)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-publisher",
+      "program": "${workspaceFolder}/tools/Publisher/bin/Debug/net8.0/Publisher.dll",
+      "args": ["metadata", "data/app.db"],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole"
+    }
+  ]
+}
