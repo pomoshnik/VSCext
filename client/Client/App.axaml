@@ -15,14 +15,12 @@
 
     <!-- Окна -->
     <Style Selector="Window">
-      <Setter Property="Background" Value="#866D35" />
+      <Setter Property="Background" Value="White" />
     </Style>
 
     <!-- Кнопки -->
     <Style Selector="Button">
       <Setter Property="Padding" Value="14,6" />
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="4"/>
     </Style>
     <!-- основная кнопка формы («Записать и закрыть», «1С-мини») -->
     <Style Selector="Button.primary">
@@ -37,9 +35,6 @@
     <Style Selector="Button.column">
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="BorderBrush" Value="#B48C5B"/>
-      <Setter Property="CornerRadius" Value="4"/>
     </Style>
 
     <!-- Списки -->
@@ -126,9 +121,35 @@
       <Setter Property="Margin" Value="4,3" />
     </Style>
 
+    <!-- Табличные части на форме записи -->
+    <!-- заголовок табличной части -->
+    <Style Selector="TextBlock.vtTitle">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="0,10,0,2" />
+    </Style>
+    <!-- ячейка шапки таблицы -->
+    <Style Selector="TextBlock.vtHeaderCell">
+      <Setter Property="Width" Value="140" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <!-- редакторы в ячейках таблицы -->
+    <Style Selector="TextBox.cellEdit">
+      <Setter Property="Width" Value="140" />
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+    <Style Selector="ComboBox.cellEdit">
+      <Setter Property="Width" Value="140" />
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+    <!-- маленькая кнопка в строке таблицы (удаление строки) -->
+    <Style Selector="Button.rowBtn">
+      <Setter Property="Padding" Value="8,2" />
+    </Style>
+
     <!-- Рамки панелей -->
     <Style Selector="Border.pane">
-      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="BorderBrush" Value="LightGray" />
     </Style>
   </Application.Styles>
 </Application>

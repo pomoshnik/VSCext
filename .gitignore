@@ -1,4 +1,5 @@
 bin/
 obj/
+data/*.db
 .avalonia-build-tasks/
 node_modules/
