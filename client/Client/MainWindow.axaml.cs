@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     ListBox _списокЗаписей = null!;
     TextBlock _статус = null!;
     Button _кнДобавить = null!, _кнИзменить = null!, _кнУдалить = null!, _кнОбновить = null!;
+    Button? _кнОстатки;
 
     ОбъектМетаданных? _текущий;
     List<string> _колонки = new();
@@ -63,6 +64,11 @@ public partial class MainWindow : Window
         _кнУдалить.Click += async (_, _) => await УдалитьЗапись();
         _кнОбновить.Click += (_, _) => ПоказатьСписок();
 
+        // «Остатки» — только для регистров накопления (добавляется к панели кнопок)
+        _кнОстатки = Шаблон.Кнопка("Остатки", ПоказатьОстатки);
+        _кнОстатки.IsVisible = false;
+        if (_кнОбновить.Parent is Panel панельКнопок) панельКнопок.Children.Add(_кнОстатки);
+
         ПостроитьДерево();
         _дерево.SelectionChanged += (_, _) =>
         {
@@ -103,7 +109,7 @@ public partial class MainWindow : Window
                 new List<string> { "Код", "Наименование" }.Concat(о.Реквизиты.Select(р => р.Имя)).ToList(),
                 "Ссылка", true),
             "Документ" => (таблица,
-                new List<string> { "Номер", "Дата" }.Concat(о.Реквизиты.Select(р => р.Имя)).ToList(),
+                new List<string> { "Проведен", "Номер", "Дата" }.Concat(о.Реквизиты.Select(р => р.Имя)).ToList(),
                 "Ссылка", true),
             "Перечисление" => (таблица, new List<string> { "Имя", "Синоним" }, "Имя", false),
             "РегистрСведений" => (таблица,
@@ -128,6 +134,7 @@ public partial class MainWindow : Window
         var (таблица, колонки, _, редактируемый) = Схема(_текущий);
         _колонки = колонки;
         _кнДобавить.IsEnabled = _кнИзменить.IsEnabled = _кнУдалить.IsEnabled = редактируемый;
+        if (_кнОстатки != null) _кнОстатки.IsVisible = _текущий.Вид == "РегистрНакопления";
 
         foreach (var к in колонки)
             _шапкаТаблицы.Children.Add(Шаблон.ЯчейкаШапки(к));
@@ -138,13 +145,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        var строки = _база.Выбрать(таблица, колонки.FirstOrDefault());
+        var порядок = колонки.FirstOrDefault(к => к != "Проведен");
+        var строки = _база.Выбрать(таблица, порядок);
         foreach (var строка in строки)
         {
             var панель = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
             foreach (var к in колонки)
             {
                 var значение = строка.TryGetValue(к, out var v) ? v?.ToString() ?? "" : "";
+                if (к == "Проведен")
+                    значение = значение is "1" or "True" or "true" ? "✓" : "";
                 var тип = ТипКолонки(_текущий, к);
                 if (тип != null && тип.Contains("Ссылка."))
                     значение = _база.Представление(тип, значение);
@@ -153,6 +163,12 @@ public partial class MainWindow : Window
             _списокЗаписей.Items.Add(new ListBoxItem { Content = панель, Tag = строка });
         }
         _статус.Text = $"{_текущий.ПолноеИмя} — записей: {строки.Count}";
+    }
+
+    void ПоказатьОстатки()
+    {
+        if (_текущий == null || _текущий.Вид != "РегистрНакопления") return;
+        new ОкноОстатков(_база, _текущий).ShowDialog(this);
     }
 
     Dictionary<string, object?>? ВыбраннаяСтрока() =>
@@ -189,7 +205,12 @@ public partial class MainWindow : Window
         var да = await Шаблон.Вопрос(this, $"Объект «{имя}» будет удален. Продолжить?");
         if (!да) return;
 
-        _база.Удалить(таблица, ключ, строка[ключ]?.ToString() ?? "");
+        var значениеКлюча = строка[ключ]?.ToString() ?? "";
+        _база.Удалить(таблица, ключ, значениеКлюча);
+        if (_текущий.Вид == "Документ") _база.УдалитьДвижения(значениеКлюча);
+        // строки табличных частей документа/справочника
+        foreach (var тч in _текущий.ТабличныеЧасти.Where(т => т.Таблица != null))
+            _база.Удалить(тч.Таблица!, "Ссылка", значениеКлюча);
         ПоказатьСписок();
     }
 }

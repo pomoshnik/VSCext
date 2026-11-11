@@ -208,5 +208,98 @@ public class База : IDisposable
         return Convert.ToInt64(к.ExecuteScalar());
     }
 
+    // --- Движения по регистрам накопления -----------------------------------
+
+    /// <summary>Удаляет движения документа из всех регистров накопления (отмена проведения, удаление).</summary>
+    public void УдалитьДвижения(string регистратор)
+    {
+        foreach (var регистр in _конфиг.ПоВиду("РегистрНакопления"))
+        {
+            var таблица = регистр.Таблица;
+            if (таблица == null || !ТаблицаЕсть(таблица)) continue;
+            using var к = _соединение.CreateCommand();
+            к.CommandText = $"DELETE FROM \"{таблица}\" WHERE \"Регистратор\" = @р";
+            к.Parameters.AddWithValue("@р", регистратор);
+            к.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>Записывает движения документа: старые удаляются, новые вставляются (транзакция).</summary>
+    public void ЗаписатьДвижения(string регистратор, string период, НаборДвижений движения)
+    {
+        using var транзакция = _соединение.BeginTransaction();
+        foreach (var регистр in _конфиг.ПоВиду("РегистрНакопления"))
+        {
+            var таблица = регистр.Таблица;
+            if (таблица == null || !ТаблицаЕсть(таблица)) continue;
+            using var к = _соединение.CreateCommand();
+            к.Transaction = транзакция;
+            к.CommandText = $"DELETE FROM \"{таблица}\" WHERE \"Регистратор\" = @р";
+            к.Parameters.AddWithValue("@р", регистратор);
+            к.ExecuteNonQuery();
+        }
+        foreach (var движение in движения.Список)
+        {
+            var регистр = _конфиг.Найти($"РегистрНакопления.{движение.Регистр}");
+            var таблица = регистр?.Таблица;
+            if (регистр == null || таблица == null)
+                throw new InvalidOperationException($"Регистр накопления «{движение.Регистр}» не найден или не опубликован.");
+
+            var поля = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Регистратор"] = регистратор,
+                ["Период"] = период,
+                ["ВидДвижения"] = движение.ВидДвижения
+            };
+            foreach (var (имя, значение) in движение.Поля) поля[имя] = значение;
+
+            var имена = поля.Keys.ToList();
+            using var к = _соединение.CreateCommand();
+            к.Transaction = транзакция;
+            var колонки = string.Join(", ", имена.Select(и => $"\"{ВКолонку(таблица, и)}\""));
+            var параметры = string.Join(", ", имена.Select((_, i) => $"@p{i}"));
+            к.CommandText = $"INSERT INTO \"{таблица}\" ({колонки}) VALUES ({параметры})";
+            for (int i = 0; i < имена.Count; i++)
+                к.Parameters.AddWithValue($"@p{i}", поля[имена[i]] ?? "");
+            к.ExecuteNonQuery();
+        }
+        транзакция.Commit();
+    }
+
+    /// <summary>Остатки по регистру накопления: измерения + суммы ресурсов (Приход минус Расход).</summary>
+    public List<Dictionary<string, object?>> Остатки(ОбъектМетаданных регистр)
+    {
+        var результат = new List<Dictionary<string, object?>>();
+        var таблица = регистр.Таблица;
+        if (таблица == null || !ТаблицаЕсть(таблица)) return результат;
+
+        var измерения = регистр.Измерения.Select(и => и.Имя).ToList();
+        var ресурсы = регистр.Ресурсы.Select(р => р.Имя).ToList();
+        if (ресурсы.Count == 0) return результат;
+
+        var выбор = new List<string>();
+        foreach (var и in измерения)
+            выбор.Add($"\"{ВКолонку(таблица, и)}\" AS \"{и}\"");
+        foreach (var р in ресурсы)
+            выбор.Add($"SUM(CASE WHEN \"ВидДвижения\" = 'Расход' THEN -\"{ВКолонку(таблица, р)}\" ELSE \"{ВКолонку(таблица, р)}\" END) AS \"{р}\"");
+        var группировка = измерения.Count > 0
+            ? " GROUP BY " + string.Join(", ", измерения.Select((_, i) => (i + 1).ToString()))
+            : "";
+
+        using var к = _соединение.CreateCommand();
+        к.CommandText = $"SELECT {string.Join(", ", выбор)} FROM \"{таблица}\"{группировка}";
+        using var ч = к.ExecuteReader();
+        while (ч.Read())
+        {
+            var строка = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < ч.FieldCount; i++)
+                строка[ч.GetName(i)] = ч.IsDBNull(i) ? null : ч.GetValue(i);
+            // нулевые остатки не показываем
+            if (ресурсы.All(р => Convert.ToDecimal(строка[р] ?? 0m) == 0m)) continue;
+            результат.Add(строка);
+        }
+        return результат;
+    }
+
     public void Dispose() => _соединение.Dispose();
 }

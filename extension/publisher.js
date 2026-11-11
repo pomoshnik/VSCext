@@ -347,6 +347,53 @@ function generateCode(data) {
   L.push('}');
   L.push('');
 
+  // статические помощники доступа к словарю — внутри каждого генерируемого класса
+  const dictHelpers = [
+    '    static string С(Dictionary<string, object?> п, string имя) => п.TryGetValue(имя, out var v) ? v?.ToString() ?? "" : "";',
+    '    static decimal Ч(Dictionary<string, object?> п, string имя) => decimal.TryParse(С(п, имя), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0m;'
+  ];
+  const dictProp = (name, type, dict) => {
+    if (type === 'Число') return `    public decimal ${name} { get => Ч(${dict}, "${name}"); set => ${dict}["${name}"] = value; }`;
+    if (type === 'Булево') return `    public bool ${name} { get => С(${dict}, "${name}") is "1" or "True" or "true"; set => ${dict}["${name}"] = value ? 1 : 0; }`;
+    return `    public string ${name} { get => С(${dict}, "${name}"); set => ${dict}["${name}"] = value; }`;
+  };
+
+  // --- Движения по регистрам накопления ---
+  const регистры = [...data.accumRegs].sort((a, b) => (a.name < b.name ? -1 : 1));
+  for (const r of регистры) {
+    L.push(`/// <summary>Движение по регистру накопления «${r.name}»</summary>`);
+    L.push(`public class Движение${r.name}`);
+    L.push('{');
+    L.push('    public Движение Движение { get; }');
+    L.push(`    public Движение${r.name}(Движение движение) => Движение = движение;`);
+    L.push('    Dictionary<string, object?> Поля => Движение.Поля;');
+    L.push(...dictHelpers);
+    for (const a of [...r.dims, ...r.ress]) L.push(dictProp(a.name, a.type, 'Поля'));
+    L.push('}');
+    L.push('');
+    L.push(`/// <summary>Движения документа по регистру «${r.name}»</summary>`);
+    L.push(`public class Движения${r.name}`);
+    L.push('{');
+    L.push('    readonly НаборДвижений _набор;');
+    L.push(`    public Движения${r.name}(НаборДвижений набор) => _набор = набор;`);
+    L.push(`    public Движение${r.name} ДобавитьПриход() => new(_набор.Приход("${r.name}"));`);
+    L.push(`    public Движение${r.name} ДобавитьРасход() => new(_набор.Расход("${r.name}"));`);
+    L.push('}');
+    L.push('');
+  }
+  L.push('/// <summary>Типизированные движения по всем регистрам накопления (параметр ОбработкаПроведения)</summary>');
+  L.push('public class Движения');
+  L.push('{');
+  L.push('    public НаборДвижений Набор { get; }');
+  L.push('    public Движения(НаборДвижений набор)');
+  L.push('    {');
+  L.push('        Набор = набор;');
+  for (const r of регистры) L.push(`        ${r.name} = new(набор);`);
+  L.push('    }');
+  for (const r of регистры) L.push(`    public Движения${r.name} ${r.name} { get; }`);
+  L.push('}');
+  L.push('');
+
   const objects = [
     ...data.catalogs.map(c => ({ kind: 'Справочник', ...c })),
     ...data.documents.map(d => ({ kind: 'Документ', ...d }))
@@ -355,6 +402,21 @@ function generateCode(data) {
   for (const o of objects) {
     const rec = `${o.kind}${o.name}Запись`;
     const mod = `Модуль${o.kind}${o.name}`;
+
+    // --- Типизированные строки табличных частей ---
+    for (const t of o.tabulars || []) {
+      const row = `${o.kind}${o.name}${t.name}Строка`;
+      L.push(`/// <summary>Строка ТЧ «${t.name}» объекта ${o.kind}.${o.name}</summary>`);
+      L.push(`public class ${row}`);
+      L.push('{');
+      L.push('    public Dictionary<string, object?> Поля { get; }');
+      L.push(`    public ${row}(Dictionary<string, object?> поля) => Поля = поля;`);
+      L.push(...dictHelpers);
+      for (const a of t.attrs) L.push(dictProp(a.name, a.type, 'Поля'));
+      L.push('}');
+      L.push('');
+    }
+
     L.push(`/// <summary>Типизированная запись: ${o.kind}.${o.name}</summary>`);
     L.push(`public class ${rec}`);
     L.push('{');
@@ -370,6 +432,8 @@ function generateCode(data) {
       L.push(propLine('Дата', 'Дата'));
     }
     for (const a of o.attrs) L.push(propLine(a.name, a.type));
+    for (const t of o.tabulars || [])
+      L.push(`    public List<${o.kind}${o.name}${t.name}Строка> ${t.name} => Запись.Строки("${t.name}").Select(с => new ${o.kind}${o.name}${t.name}Строка(с)).ToList();`);
     L.push('}');
     L.push('');
     L.push(`/// <summary>Базовый модуль с типизированными обработчиками: ${o.kind}.${o.name}</summary>`);
@@ -381,6 +445,10 @@ function generateCode(data) {
     L.push(`    public virtual void ПриЗаписи(${rec} запись) { }`);
     L.push(`    public sealed override void ПриЗаполнении(ЗаписьОбъекта запись) => ПриЗаполнении(new ${rec}(запись));`);
     L.push(`    public virtual void ПриЗаполнении(${rec} запись) { }`);
+    if (o.kind === 'Документ') {
+      L.push(`    public sealed override void ОбработкаПроведения(ЗаписьОбъекта запись, НаборДвижений движения, Отказ отказ) => ОбработкаПроведения(new ${rec}(запись), new Движения(движения), отказ);`);
+      L.push(`    public virtual void ОбработкаПроведения(${rec} запись, Движения движения, Отказ отказ) { }`);
+    }
     L.push('}');
     L.push('');
   }

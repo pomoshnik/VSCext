@@ -348,6 +348,19 @@ static class ГенераторКода
         к.AppendLine($"    public {cs} {имя} {{ get => {геттер}; set => {сеттер}; }}");
     }
 
+    static void СвойствоСловаря(System.Text.StringBuilder к, string имя, string тип, string словарь = "Поля")
+    {
+        var cs = ТипCs(тип);
+        var геттер = cs switch
+        {
+            "decimal" => $"Ч({словарь}, \"{имя}\")",
+            "bool" => $"С({словарь}, \"{имя}\") is \"1\" or \"True\" or \"true\"",
+            _ => $"С({словарь}, \"{имя}\")"
+        };
+        var сеттер = cs == "bool" ? $"{словарь}[\"{имя}\"] = value ? 1 : 0" : $"{словарь}[\"{имя}\"] = value";
+        к.AppendLine($"    public {cs} {имя} {{ get => {геттер}; set => {сеттер}; }}");
+    }
+
     public static string Сгенерировать(OneC.Core.Конфигурация конфиг)
     {
         var к = new System.Text.StringBuilder();
@@ -377,11 +390,69 @@ static class ГенераторКода
         к.AppendLine("}");
         к.AppendLine();
 
+        // --- Движения по регистрам накопления ---
+        var регистры = конфиг.ПоВиду("РегистрНакопления").OrderBy(р => р.Имя).ToList();
+        foreach (var рег in регистры)
+        {
+            к.AppendLine($"/// <summary>Движение по регистру накопления «{рег.Представление}»</summary>");
+            к.AppendLine($"public class Движение{рег.Имя}");
+            к.AppendLine("{");
+            к.AppendLine("    public Движение Движение { get; }");
+            к.AppendLine($"    public Движение{рег.Имя}(Движение движение) => Движение = движение;");
+            к.AppendLine("    Dictionary<string, object?> Поля => Движение.Поля;");
+            к.AppendLine("    static string С(Dictionary<string, object?> п, string имя) => п.TryGetValue(имя, out var v) ? v?.ToString() ?? \"\" : \"\";");
+            к.AppendLine("    static decimal Ч(Dictionary<string, object?> п, string имя) => decimal.TryParse(С(п, имя), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0m;");
+            foreach (var р in рег.Измерения.Concat(рег.Ресурсы))
+                СвойствоСловаря(к, р.Имя, р.Тип);
+            к.AppendLine("}");
+            к.AppendLine();
+            к.AppendLine($"/// <summary>Движения документа по регистру «{рег.Представление}»</summary>");
+            к.AppendLine($"public class Движения{рег.Имя}");
+            к.AppendLine("{");
+            к.AppendLine("    readonly НаборДвижений _набор;");
+            к.AppendLine($"    public Движения{рег.Имя}(НаборДвижений набор) => _набор = набор;");
+            к.AppendLine($"    public Движение{рег.Имя} ДобавитьПриход() => new(_набор.Приход(\"{рег.Имя}\"));");
+            к.AppendLine($"    public Движение{рег.Имя} ДобавитьРасход() => new(_набор.Расход(\"{рег.Имя}\"));");
+            к.AppendLine("}");
+            к.AppendLine();
+        }
+        к.AppendLine("/// <summary>Типизированные движения по всем регистрам накопления (параметр ОбработкаПроведения)</summary>");
+        к.AppendLine("public class Движения");
+        к.AppendLine("{");
+        к.AppendLine("    public НаборДвижений Набор { get; }");
+        к.AppendLine("    public Движения(НаборДвижений набор)");
+        к.AppendLine("    {");
+        к.AppendLine("        Набор = набор;");
+        foreach (var рег in регистры)
+            к.AppendLine($"        {рег.Имя} = new(набор);");
+        к.AppendLine("    }");
+        foreach (var рег in регистры)
+            к.AppendLine($"    public Движения{рег.Имя} {рег.Имя} {{ get; }}");
+        к.AppendLine("}");
+        к.AppendLine();
+
         // --- Типизированные записи и базовые модули ---
         foreach (var о in конфиг.Объекты.Where(о => о.Вид is "Справочник" or "Документ").OrderBy(о => о.ПолноеИмя))
         {
             var имяЗаписи = $"{о.Вид}{о.Имя}Запись";
             var имяМодуля = $"Модуль{о.Вид}{о.Имя}";
+
+            // --- Типизированные строки табличных частей ---
+            foreach (var тч in о.ТабличныеЧасти)
+            {
+                var имяСтроки = $"{о.Вид}{о.Имя}{тч.Имя}Строка";
+                к.AppendLine($"/// <summary>Строка ТЧ «{тч.Имя}» объекта {о.ПолноеИмя}</summary>");
+                к.AppendLine($"public class {имяСтроки}");
+                к.AppendLine("{");
+                к.AppendLine("    public Dictionary<string, object?> Поля { get; }");
+                к.AppendLine($"    public {имяСтроки}(Dictionary<string, object?> поля) => Поля = поля;");
+                к.AppendLine("    static string С(Dictionary<string, object?> п, string имя) => п.TryGetValue(имя, out var v) ? v?.ToString() ?? \"\" : \"\";");
+                к.AppendLine("    static decimal Ч(Dictionary<string, object?> п, string имя) => decimal.TryParse(С(п, имя), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0m;");
+                foreach (var р in тч.Реквизиты)
+                    СвойствоСловаря(к, р.Имя, р.Тип);
+                к.AppendLine("}");
+                к.AppendLine();
+            }
 
             к.AppendLine($"/// <summary>Типизированная запись: {о.ПолноеИмя}</summary>");
             к.AppendLine($"public class {имяЗаписи}");
@@ -402,6 +473,8 @@ static class ГенераторКода
             }
             foreach (var р in о.Реквизиты)
                 Свойство(к, р.Имя, р.Тип);
+            foreach (var тч in о.ТабличныеЧасти)
+                к.AppendLine($"    public List<{о.Вид}{о.Имя}{тч.Имя}Строка> {тч.Имя} => Запись.Строки(\"{тч.Имя}\").Select(с => new {о.Вид}{о.Имя}{тч.Имя}Строка(с)).ToList();");
             к.AppendLine("}");
             к.AppendLine();
 
@@ -414,6 +487,11 @@ static class ГенераторКода
             к.AppendLine($"    public virtual void ПриЗаписи({имяЗаписи} запись) {{ }}");
             к.AppendLine($"    public sealed override void ПриЗаполнении(ЗаписьОбъекта запись) => ПриЗаполнении(new {имяЗаписи}(запись));");
             к.AppendLine($"    public virtual void ПриЗаполнении({имяЗаписи} запись) {{ }}");
+            if (о.Вид == "Документ")
+            {
+                к.AppendLine($"    public sealed override void ОбработкаПроведения(ЗаписьОбъекта запись, НаборДвижений движения, Отказ отказ) => ОбработкаПроведения(new {имяЗаписи}(запись), new Движения(движения), отказ);");
+                к.AppendLine($"    public virtual void ОбработкаПроведения({имяЗаписи} запись, Движения движения, Отказ отказ) {{ }}");
+            }
             к.AppendLine("}");
             к.AppendLine();
         }

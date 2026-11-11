@@ -18,6 +18,13 @@ public class ЗаписьОбъекта
     public bool ЭтоНовый => string.IsNullOrEmpty(Ссылка);
     public Dictionary<string, object?> Поля { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Строки табличных частей по имени ТЧ (ключи строк — имена реквизитов).</summary>
+    public Dictionary<string, List<Dictionary<string, object?>>> ТабличныеЧасти { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public List<Dictionary<string, object?>> Строки(string табличнаяЧасть) =>
+        ТабличныеЧасти.TryGetValue(табличнаяЧасть, out var строки) ? строки : new();
+
     public object? this[string имя]
     {
         get => Поля.TryGetValue(имя, out var v) ? v : null;
@@ -27,6 +34,42 @@ public class ЗаписьОбъекта
     public string Строка(string имя) => this[имя]?.ToString() ?? "";
     public decimal Число(string имя) =>
         decimal.TryParse(this[имя]?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0m;
+}
+
+/// <summary>Одно движение по регистру накопления (Приход или Расход).</summary>
+public class Движение
+{
+    public string Регистр { get; }
+    public string ВидДвижения { get; }   // Приход | Расход
+    public Dictionary<string, object?> Поля { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public Движение(string регистр, string видДвижения)
+    {
+        Регистр = регистр;
+        ВидДвижения = видДвижения;
+    }
+
+    public object? this[string имя]
+    {
+        get => Поля.TryGetValue(имя, out var v) ? v : null;
+        set => Поля[имя] = value;
+    }
+}
+
+/// <summary>Движения документа по регистрам — заполняются в ОбработкаПроведения.</summary>
+public class НаборДвижений
+{
+    public List<Движение> Список { get; } = new();
+
+    public Движение Добавить(string регистр, string видДвижения)
+    {
+        var движение = new Движение(регистр, видДвижения);
+        Список.Add(движение);
+        return движение;
+    }
+
+    public Движение Приход(string регистр) => Добавить(регистр, "Приход");
+    public Движение Расход(string регистр) => Добавить(регистр, "Расход");
 }
 
 /// <summary>Флаг отказа, как параметр Отказ в обработчиках 1С.</summary>
@@ -53,6 +96,9 @@ public abstract class МодульОбъекта
 
     /// <summary>Вызывается при создании нового объекта — заполнение значений по умолчанию.</summary>
     public virtual void ПриЗаполнении(ЗаписьОбъекта запись) { }
+
+    /// <summary>Проведение документа: сформируйте движения по регистрам. Установите Отказ, чтобы прервать.</summary>
+    public virtual void ОбработкаПроведения(ЗаписьОбъекта запись, НаборДвижений движения, Отказ отказ) { }
 }
 
 /// <summary>Реестр модулей бизнес-логики: ищет классы с атрибутом [МодульОбъекта] по сборкам.</summary>

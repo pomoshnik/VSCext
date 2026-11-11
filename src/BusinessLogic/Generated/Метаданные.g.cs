@@ -21,6 +21,53 @@ public static class Перечисления
     }
 }
 
+/// <summary>Движение по регистру накопления «Остатки товаров»</summary>
+public class ДвижениеОстаткиТоваров
+{
+    public Движение Движение { get; }
+    public ДвижениеОстаткиТоваров(Движение движение) => Движение = движение;
+    Dictionary<string, object?> Поля => Движение.Поля;
+    static string С(Dictionary<string, object?> п, string имя) => п.TryGetValue(имя, out var v) ? v?.ToString() ?? "" : "";
+    static decimal Ч(Dictionary<string, object?> п, string имя) => decimal.TryParse(С(п, имя), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0m;
+    public string Номенклатура { get => С(Поля, "Номенклатура"); set => Поля["Номенклатура"] = value; }
+    public string Склад { get => С(Поля, "Склад"); set => Поля["Склад"] = value; }
+    public decimal Количество { get => Ч(Поля, "Количество"); set => Поля["Количество"] = value; }
+}
+
+/// <summary>Движения документа по регистру «Остатки товаров»</summary>
+public class ДвиженияОстаткиТоваров
+{
+    readonly НаборДвижений _набор;
+    public ДвиженияОстаткиТоваров(НаборДвижений набор) => _набор = набор;
+    public ДвижениеОстаткиТоваров ДобавитьПриход() => new(_набор.Приход("ОстаткиТоваров"));
+    public ДвижениеОстаткиТоваров ДобавитьРасход() => new(_набор.Расход("ОстаткиТоваров"));
+}
+
+/// <summary>Типизированные движения по всем регистрам накопления (параметр ОбработкаПроведения)</summary>
+public class Движения
+{
+    public НаборДвижений Набор { get; }
+    public Движения(НаборДвижений набор)
+    {
+        Набор = набор;
+        ОстаткиТоваров = new(набор);
+    }
+    public ДвиженияОстаткиТоваров ОстаткиТоваров { get; }
+}
+
+/// <summary>Строка ТЧ «Товары» объекта Документ.ПоступлениеТоваров</summary>
+public class ДокументПоступлениеТоваровТоварыСтрока
+{
+    public Dictionary<string, object?> Поля { get; }
+    public ДокументПоступлениеТоваровТоварыСтрока(Dictionary<string, object?> поля) => Поля = поля;
+    static string С(Dictionary<string, object?> п, string имя) => п.TryGetValue(имя, out var v) ? v?.ToString() ?? "" : "";
+    static decimal Ч(Dictionary<string, object?> п, string имя) => decimal.TryParse(С(п, имя), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0m;
+    public string Номенклатура { get => С(Поля, "Номенклатура"); set => Поля["Номенклатура"] = value; }
+    public decimal Количество { get => Ч(Поля, "Количество"); set => Поля["Количество"] = value; }
+    public decimal Цена { get => Ч(Поля, "Цена"); set => Поля["Цена"] = value; }
+    public decimal Сумма { get => Ч(Поля, "Сумма"); set => Поля["Сумма"] = value; }
+}
+
 /// <summary>Типизированная запись: Документ.ПоступлениеТоваров</summary>
 public class ДокументПоступлениеТоваровЗапись
 {
@@ -33,6 +80,7 @@ public class ДокументПоступлениеТоваровЗапись
     public string Контрагент { get => Запись.Строка("Контрагент"); set => Запись["Контрагент"] = value; }
     public string Склад { get => Запись.Строка("Склад"); set => Запись["Склад"] = value; }
     public decimal СуммаДокумента { get => Запись.Число("СуммаДокумента"); set => Запись["СуммаДокумента"] = value; }
+    public List<ДокументПоступлениеТоваровТоварыСтрока> Товары => Запись.Строки("Товары").Select(с => new ДокументПоступлениеТоваровТоварыСтрока(с)).ToList();
 }
 
 /// <summary>Базовый модуль с типизированными обработчиками: Документ.ПоступлениеТоваров</summary>
@@ -44,6 +92,8 @@ public abstract class МодульДокументПоступлениеТова
     public virtual void ПриЗаписи(ДокументПоступлениеТоваровЗапись запись) { }
     public sealed override void ПриЗаполнении(ЗаписьОбъекта запись) => ПриЗаполнении(new ДокументПоступлениеТоваровЗапись(запись));
     public virtual void ПриЗаполнении(ДокументПоступлениеТоваровЗапись запись) { }
+    public sealed override void ОбработкаПроведения(ЗаписьОбъекта запись, НаборДвижений движения, Отказ отказ) => ОбработкаПроведения(new ДокументПоступлениеТоваровЗапись(запись), new Движения(движения), отказ);
+    public virtual void ОбработкаПроведения(ДокументПоступлениеТоваровЗапись запись, Движения движения, Отказ отказ) { }
 }
 
 /// <summary>Типизированная запись: Справочник.Контрагенты</summary>
@@ -71,6 +121,17 @@ public abstract class МодульСправочникКонтрагенты : �
     public virtual void ПриЗаполнении(СправочникКонтрагентыЗапись запись) { }
 }
 
+/// <summary>Строка ТЧ «Характеристики» объекта Справочник.Номенклатура</summary>
+public class СправочникНоменклатураХарактеристикиСтрока
+{
+    public Dictionary<string, object?> Поля { get; }
+    public СправочникНоменклатураХарактеристикиСтрока(Dictionary<string, object?> поля) => Поля = поля;
+    static string С(Dictionary<string, object?> п, string имя) => п.TryGetValue(имя, out var v) ? v?.ToString() ?? "" : "";
+    static decimal Ч(Dictionary<string, object?> п, string имя) => decimal.TryParse(С(п, имя), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0m;
+    public string Свойство { get => С(Поля, "Свойство"); set => Поля["Свойство"] = value; }
+    public string Значение { get => С(Поля, "Значение"); set => Поля["Значение"] = value; }
+}
+
 /// <summary>Типизированная запись: Справочник.Номенклатура</summary>
 public class СправочникНоменклатураЗапись
 {
@@ -84,6 +145,7 @@ public class СправочникНоменклатураЗапись
     public string ЕдиницаИзмерения { get => Запись.Строка("ЕдиницаИзмерения"); set => Запись["ЕдиницаИзмерения"] = value; }
     public string СтавкаНДС { get => Запись.Строка("СтавкаНДС"); set => Запись["СтавкаНДС"] = value; }
     public decimal Цена { get => Запись.Число("Цена"); set => Запись["Цена"] = value; }
+    public List<СправочникНоменклатураХарактеристикиСтрока> Характеристики => Запись.Строки("Характеристики").Select(с => new СправочникНоменклатураХарактеристикиСтрока(с)).ToList();
 }
 
 /// <summary>Базовый модуль с типизированными обработчиками: Справочник.Номенклатура</summary>
