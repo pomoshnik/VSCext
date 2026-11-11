@@ -451,7 +451,36 @@ function generateCode(data) {
     }
     L.push('}');
     L.push('');
+
+    // --- Типизированный запрос ---
+    const q = `Запрос${o.kind}${o.name}`;
+    L.push(`/// <summary>Запрос с отбором и сортировкой: ${o.kind}.${o.name}</summary>`);
+    L.push(`public class ${q}`);
+    L.push('{');
+    L.push(`    readonly Запрос _запрос = Запрос.Из("${o.kind}.${o.name}");`);
+    L.push(`    public ${q} Отбор(string поле, object? значение) { _запрос.Отбор(поле, значение); return this; }`);
+    L.push(`    public ${q} Отбор(string поле, string оператор, object? значение) { _запрос.Отбор(поле, оператор, значение); return this; }`);
+    L.push(`    public ${q} Сортировка(string поле, bool убывание = false) { _запрос.Сортировка(поле, убывание); return this; }`);
+    L.push(`    public ${q} Первые(int количество) { _запрос.Первые(количество); return this; }`);
+    L.push(`    public ${q} СТабличнымиЧастями() { _запрос.СТабличнымиЧастями(); return this; }`);
+    L.push(`    public List<${rec}> Выбрать() => _запрос.Выбрать().Select(з => new ${rec}(з)).ToList();`);
+    L.push(`    public ${rec}? ВыбратьПервую() { _запрос.Первые(1); return Выбрать().FirstOrDefault(); }`);
+    L.push('}');
+    L.push('');
   }
+
+  // --- Точки входа запросов: Справочники.X / Документы.X ---
+  const entry = (cls, kind, arr) => {
+    L.push(`/// <summary>Типизированные запросы: ${cls}.&lt;Имя&gt;.Отбор(...).Выбрать()</summary>`);
+    L.push(`public static class ${cls}`);
+    L.push('{');
+    for (const o of [...arr].sort((a, b) => (a.name < b.name ? -1 : 1)))
+      L.push(`    public static Запрос${kind}${o.name} ${o.name} => new();`);
+    L.push('}');
+    L.push('');
+  };
+  entry('Справочники', 'Справочник', data.catalogs);
+  entry('Документы', 'Документ', data.documents);
   return L.join('\n');
 }
 

@@ -4,7 +4,7 @@ using OneC.Core;
 namespace Client;
 
 /// <summary>Доступ к опубликованной базе SQLite.</summary>
-public class База : IDisposable
+public class База : IDisposable, IИсточникЗапросов
 {
     readonly SqliteConnection _соединение;
     readonly Конфигурация _конфиг;
@@ -51,6 +51,12 @@ public class База : IDisposable
         if (!string.IsNullOrEmpty(каталог)) Directory.CreateDirectory(каталог);
         _соединение = new SqliteConnection($"Data Source={файл}");
         _соединение.Open();
+
+        // Запросы из модулей бизнес-логики (Запрос.Из(...)) идут через эту базу
+        Запрос.Источник = this;
+
+        // SQLite LIKE не знает кириллицу — своя функция для регистронезависимого «Подобно»
+        _соединение.CreateFunction("внижнем", (string? т) => т?.ToLowerInvariant());
     }
 
     /// <summary>Снимок метаданных из опубликованной базы (или null, если база не публиковалась).</summary>
@@ -206,6 +212,69 @@ public class База : IDisposable
         using var к = _соединение.CreateCommand();
         к.CommandText = $"SELECT COUNT(*) FROM \"{таблица}\"";
         return Convert.ToInt64(к.ExecuteScalar());
+    }
+
+    // --- Запросы с отбором и сортировкой (IИсточникЗапросов) ----------------
+
+    static readonly Dictionary<string, string> _операторы = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["="] = "=", ["<>"] = "<>", [">"] = ">", [">="] = ">=", ["<"] = "<", ["<="] = "<=",
+        ["Подобно"] = "LIKE", ["LIKE"] = "LIKE"
+    };
+
+    public List<ЗаписьОбъекта> Выполнить(Запрос запрос)
+    {
+        var объект = _конфиг.Найти(запрос.ПолноеИмя)
+            ?? throw new InvalidOperationException($"Объект «{запрос.ПолноеИмя}» не найден в конфигурации.");
+        var таблица = ИмяТаблицы(объект);
+        var результат = new List<ЗаписьОбъекта>();
+        if (!ТаблицаЕсть(таблица)) return результат;
+
+        var sql = new System.Text.StringBuilder($"SELECT * FROM \"{таблица}\"");
+        var параметры = new List<object?>();
+        if (запрос.Отборы.Count > 0)
+        {
+            var условия = new List<string>();
+            foreach (var (поле, оператор, значение) in запрос.Отборы)
+            {
+                if (!_операторы.TryGetValue(оператор, out var op))
+                    throw new ArgumentException($"Неизвестный оператор отбора «{оператор}». Допустимо: =, <>, >, >=, <, <=, Подобно.");
+                // «Подобно» — без учёта регистра (включая кириллицу), как в 1С
+                условия.Add(op == "LIKE"
+                    ? $"внижнем(\"{ВКолонку(таблица, поле)}\") LIKE внижнем(@p{параметры.Count})"
+                    : $"\"{ВКолонку(таблица, поле)}\" {op} @p{параметры.Count}");
+                параметры.Add(значение);
+            }
+            sql.Append(" WHERE ").Append(string.Join(" AND ", условия));
+        }
+        if (запрос.Сортировки.Count > 0)
+            sql.Append(" ORDER BY ").Append(string.Join(", ",
+                запрос.Сортировки.Select(с => $"\"{ВКолонку(таблица, с.Поле)}\"" + (с.Убывание ? " DESC" : ""))));
+        if (запрос.КоличествоПервых is int н)
+            sql.Append(" LIMIT ").Append(н);
+
+        using (var к = _соединение.CreateCommand())
+        {
+            к.CommandText = sql.ToString();
+            for (int i = 0; i < параметры.Count; i++)
+                к.Parameters.AddWithValue($"@p{i}", параметры[i] ?? "");
+            using var ч = к.ExecuteReader();
+            while (ч.Read())
+            {
+                var запись = new ЗаписьОбъекта { ПолноеИмяОбъекта = запрос.ПолноеИмя };
+                for (int i = 0; i < ч.FieldCount; i++)
+                    запись[ИзКолонки(таблица, ч.GetName(i))] = ч.IsDBNull(i) ? null : ч.GetValue(i);
+                запись.Ссылка = запись["Ссылка"]?.ToString();
+                результат.Add(запись);
+            }
+        }
+
+        if (запрос.ЗагружатьТабличныеЧасти)
+            foreach (var запись in результат.Where(з => !string.IsNullOrEmpty(з.Ссылка)))
+                foreach (var тч in объект.ТабличныеЧасти.Where(т => т.Таблица != null))
+                    запись.ТабличныеЧасти[тч.Имя] = Строки(тч.Таблица!, "Ссылка", запись.Ссылка!, "НомерСтроки");
+
+        return результат;
     }
 
     // --- Движения по регистрам накопления -----------------------------------

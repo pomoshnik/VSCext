@@ -494,7 +494,38 @@ static class ГенераторКода
             }
             к.AppendLine("}");
             к.AppendLine();
+
+            // --- Типизированный запрос ---
+            var имяЗапроса = $"Запрос{о.Вид}{о.Имя}";
+            к.AppendLine($"/// <summary>Запрос с отбором и сортировкой: {о.ПолноеИмя}</summary>");
+            к.AppendLine($"public class {имяЗапроса}");
+            к.AppendLine("{");
+            к.AppendLine($"    readonly Запрос _запрос = Запрос.Из(\"{о.ПолноеИмя}\");");
+            к.AppendLine($"    public {имяЗапроса} Отбор(string поле, object? значение) {{ _запрос.Отбор(поле, значение); return this; }}");
+            к.AppendLine($"    public {имяЗапроса} Отбор(string поле, string оператор, object? значение) {{ _запрос.Отбор(поле, оператор, значение); return this; }}");
+            к.AppendLine($"    public {имяЗапроса} Сортировка(string поле, bool убывание = false) {{ _запрос.Сортировка(поле, убывание); return this; }}");
+            к.AppendLine($"    public {имяЗапроса} Первые(int количество) {{ _запрос.Первые(количество); return this; }}");
+            к.AppendLine($"    public {имяЗапроса} СТабличнымиЧастями() {{ _запрос.СТабличнымиЧастями(); return this; }}");
+            к.AppendLine($"    public List<{имяЗаписи}> Выбрать() => _запрос.Выбрать().Select(з => new {имяЗаписи}(з)).ToList();");
+            к.AppendLine($"    public {имяЗаписи}? ВыбратьПервую() {{ _запрос.Первые(1); return Выбрать().FirstOrDefault(); }}");
+            к.AppendLine("}");
+            к.AppendLine();
         }
+
+        // --- Точки входа запросов: Справочники.X / Документы.X ---
+        void ТочкиВхода(string класс, string вид)
+        {
+            var объекты = конфиг.ПоВиду(вид).OrderBy(о => о.Имя).ToList();
+            к.AppendLine($"/// <summary>Типизированные запросы: {класс}.&lt;Имя&gt;.Отбор(...).Выбрать()</summary>");
+            к.AppendLine($"public static class {класс}");
+            к.AppendLine("{");
+            foreach (var о in объекты)
+                к.AppendLine($"    public static Запрос{вид}{о.Имя} {о.Имя} => new();");
+            к.AppendLine("}");
+            к.AppendLine();
+        }
+        ТочкиВхода("Справочники", "Справочник");
+        ТочкиВхода("Документы", "Документ");
         return к.ToString();
     }
 }
