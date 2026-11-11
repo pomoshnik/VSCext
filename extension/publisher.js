@@ -14,7 +14,8 @@ function folderItems(objNode, folderType) {
 }
 
 function attrsOf(objNode, folderType) {
-  return folderItems(objNode, folderType).map(l => ({ name: l.name, synonym: l.synonym || l.name, type: l.type || 'Строка' }));
+  return folderItems(objNode, folderType).map(l =>
+    ({ name: l.name, synonym: l.synonym || l.name, type: l.type || 'Строка', prev: l.prevNames || [] }));
 }
 
 // Снимок метаданных: Конфигурация.json + все объекты из каталога metadata/
@@ -52,14 +53,14 @@ function collect(model) {
   const cls = id => model.children.find(c => c.classId === id) || { children: [] };
   const data = {
     config: { name: model.name, synonym: model.synonym || '', version: model.version || '1.0.0' },
-    constants: cls('constants').children.map(o => ({ name: o.name, type: o.type || 'Строка' })),
+    constants: cls('constants').children.map(o => ({ name: o.name, type: o.type || 'Строка', prev: o.prevNames || [] })),
     catalogs: [], documents: [], enums: [], infoRegs: [], accumRegs: []
   };
   const vt = (o, legacyPrefix) => folderItems(o, 'Табличные части').map(t => ({
     name: t.name,
     table: requireTable({ name: `${o.name}.${t.name}`, table: t.table }, 'ТабличнаяЧасть'),
     legacy: `${legacyPrefix}_${o.name}_${t.name}`, // только для миграции баз до v0.5.0
-    attrs: (t.children || []).map(l => ({ name: l.name, type: l.type || 'Строка' }))
+    attrs: (t.children || []).map(l => ({ name: l.name, type: l.type || 'Строка', prev: l.prevNames || [] }))
   }));
   for (const o of cls('catalogs').children) {
     data.catalogs.push({
@@ -81,7 +82,7 @@ function collect(model) {
     data.enums.push({
       name: o.name, synonym: o.synonym || o.name,
       table: requireTable(o, 'Перечисление'), legacy: `Переч_${o.name}`,
-      values: folderItems(o, 'Значения').map(v => ({ name: v.name, synonym: v.synonym || v.name }))
+      values: folderItems(o, 'Значения').map(v => ({ name: v.name, synonym: v.synonym || v.name, prev: v.prevNames || [] }))
     });
   }
   for (const o of cls('infoRegs').children) {
@@ -137,8 +138,17 @@ async function publish(model, rootPath, extensionDir) {
     } else {
       const have = columnsOf(name);
       for (const c of cols.filter(c => !have.has(c[0].toLowerCase()))) {
-        db.run(`ALTER TABLE "${name}" ADD COLUMN "${c[0]}" ${c[1]}`);
-        log.push(`~ ${name}: добавлена колонка ${c[0]}`);
+        // колонка переименована? ищем прежнее имя (с конца истории) среди существующих
+        const старое = (c[2] || []).slice().reverse().find(p => have.has(String(p).toLowerCase()));
+        if (старое) {
+          db.run(`ALTER TABLE "${name}" RENAME COLUMN "${старое}" TO "${c[0]}"`);
+          log.push(`~ ${name}: колонка ${старое} переименована в ${c[0]} (данные сохранены)`);
+          have.delete(String(старое).toLowerCase());
+        } else {
+          db.run(`ALTER TABLE "${name}" ADD COLUMN "${c[0]}" ${c[1]}`);
+          log.push(`~ ${name}: добавлена колонка ${c[0]}`);
+        }
+        have.add(c[0].toLowerCase());
         updated++;
       }
     }
@@ -158,20 +168,25 @@ async function publish(model, rootPath, extensionDir) {
   // Константы
   if (data.constants.length) {
     ensureTable('Константы', [['Имя', 'TEXT NOT NULL'], ['Значение', "TEXT DEFAULT ''"]], '"Имя"');
-    for (const k of data.constants)
+    for (const k of data.constants) {
+      // переименование константы: перенести строку со значением
+      for (const старое of (k.prev || []).slice().reverse())
+        db.run(`UPDATE Константы SET Имя=${quoteStr(k.name)} WHERE Имя=${quoteStr(старое)}
+                AND NOT EXISTS(SELECT 1 FROM Константы WHERE Имя=${quoteStr(k.name)})`);
       db.run(`INSERT OR IGNORE INTO Константы(Имя, Значение) VALUES(${quoteStr(k.name)}, '')`);
+    }
   }
 
   // Справочники
   for (const c of data.catalogs) {
     migrate(c.legacy, c.table);
     const cols = [['Ссылка', 'TEXT NOT NULL'], ['Код', "TEXT DEFAULT ''"], ['Наименование', "TEXT DEFAULT ''"], ['ПометкаУдаления', 'INTEGER DEFAULT 0']];
-    cols.push(...c.attrs.map(a => [a.name, sqlType(a.type)]));
+    cols.push(...c.attrs.map(a => [a.name, sqlType(a.type), a.prev]));
     ensureTable(c.table, cols, '"Ссылка"');
     for (const t of c.tabulars) {
       migrate(t.legacy, t.table);
       const tc = [['Ссылка', 'TEXT NOT NULL'], ['НомерСтроки', 'INTEGER']];
-      tc.push(...t.attrs.map(a => [a.name, sqlType(a.type)]));
+      tc.push(...t.attrs.map(a => [a.name, sqlType(a.type), a.prev]));
       ensureTable(t.table, tc);
     }
   }
@@ -180,28 +195,39 @@ async function publish(model, rootPath, extensionDir) {
   for (const d of data.documents) {
     migrate(d.legacy, d.table);
     const cols = [['Ссылка', 'TEXT NOT NULL'], ['Номер', "TEXT DEFAULT ''"], ['Дата', "TEXT DEFAULT ''"], ['Проведен', 'INTEGER DEFAULT 0'], ['ПометкаУдаления', 'INTEGER DEFAULT 0']];
-    cols.push(...d.attrs.map(a => [a.name, sqlType(a.type)]));
+    cols.push(...d.attrs.map(a => [a.name, sqlType(a.type), a.prev]));
     ensureTable(d.table, cols, '"Ссылка"');
     for (const t of d.tabulars) {
       migrate(t.legacy, t.table);
       const tc = [['Ссылка', 'TEXT NOT NULL'], ['НомерСтроки', 'INTEGER']];
-      tc.push(...t.attrs.map(a => [a.name, sqlType(a.type)]));
+      tc.push(...t.attrs.map(a => [a.name, sqlType(a.type), a.prev]));
       ensureTable(t.table, tc);
     }
   }
 
   // Перечисления + значения
+  const переименованияЗначений = []; // [имяПеречисления, старое, новое] — применим к данным после всех таблиц
   for (const e of data.enums) {
     migrate(e.legacy, e.table);
     ensureTable(e.table, [['Имя', 'TEXT NOT NULL'], ['Синоним', "TEXT DEFAULT ''"], ['Порядок', 'INTEGER DEFAULT 0']], '"Имя"');
+    for (const v of e.values) {
+      // значение переименовано: перенести строку и запомнить для обновления данных
+      for (const старое of (v.prev || []).slice().reverse()) {
+        const r = db.exec(`SELECT 1 FROM "${e.table}" WHERE Имя=${quoteStr(старое)}`);
+        if (r.length && !db.exec(`SELECT 1 FROM "${e.table}" WHERE Имя=${quoteStr(v.name)}`).length)
+          db.run(`UPDATE "${e.table}" SET Имя=${quoteStr(v.name)} WHERE Имя=${quoteStr(старое)}`);
+        переименованияЗначений.push([e.name, старое, v.name]);
+      }
+    }
     e.values.forEach((v, i) =>
       db.run(`INSERT OR REPLACE INTO "${e.table}"(Имя, Синоним, Порядок) VALUES(${quoteStr(v.name)}, ${quoteStr(v.synonym)}, ${i})`));
+    // удалить значения, которых больше нет под прежними именами (после переноса)
   }
 
   // Регистры сведений
   for (const r of data.infoRegs) {
     migrate(r.legacy, r.table);
-    const cols = [...r.dims, ...r.ress, ...r.attrs].map(a => [a.name, sqlType(a.type)]);
+    const cols = [...r.dims, ...r.ress, ...r.attrs].map(a => [a.name, sqlType(a.type), a.prev]);
     const pk = r.dims.map(d => `"${d.name}"`).join(', ');
     ensureTable(r.table, cols, pk || null);
   }
@@ -210,8 +236,31 @@ async function publish(model, rootPath, extensionDir) {
   for (const r of data.accumRegs) {
     migrate(r.legacy, r.table);
     const cols = [['Регистратор', "TEXT DEFAULT ''"], ['Период', "TEXT DEFAULT ''"], ['ВидДвижения', "TEXT DEFAULT 'Приход'"]];
-    cols.push(...[...r.dims, ...r.ress].map(a => [a.name, sqlType(a.type)]));
+    cols.push(...[...r.dims, ...r.ress].map(a => [a.name, sqlType(a.type), a.prev]));
     ensureTable(r.table, cols);
+  }
+
+  // Ссылки на переименованные значения перечислений в данных (хранятся по имени значения)
+  if (переименованияЗначений.length) {
+    const колонкиСсылок = []; // [таблица, колонка, тип]
+    for (const c of data.catalogs) {
+      c.attrs.forEach(a => колонкиСсылок.push([c.table, a.name, a.type]));
+      c.tabulars.forEach(t => t.attrs.forEach(a => колонкиСсылок.push([t.table, a.name, a.type])));
+    }
+    for (const d of data.documents) {
+      d.attrs.forEach(a => колонкиСсылок.push([d.table, a.name, a.type]));
+      d.tabulars.forEach(t => t.attrs.forEach(a => колонкиСсылок.push([t.table, a.name, a.type])));
+    }
+    for (const r of data.infoRegs)
+      [...r.dims, ...r.ress, ...r.attrs].forEach(a => колонкиСсылок.push([r.table, a.name, a.type]));
+    for (const r of data.accumRegs)
+      [...r.dims, ...r.ress].forEach(a => колонкиСсылок.push([r.table, a.name, a.type]));
+    for (const [переч, старое, новое] of переименованияЗначений)
+      for (const [табл, кол, тип] of колонкиСсылок)
+        if (тип === 'ПеречислениеСсылка.' + переч) {
+          db.run(`UPDATE "${табл}" SET "${кол}"=${quoteStr(новое)} WHERE "${кол}"=${quoteStr(старое)}`);
+          log.push(`~ ${табл}.${кол}: значение ${старое} -> ${новое}`);
+        }
   }
 
   // Версия конфигурации + полный снимок метаданных (клиент может работать без каталога metadata/)

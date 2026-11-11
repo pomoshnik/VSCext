@@ -10,6 +10,8 @@ public class Реквизит
     public string Синоним { get; set; } = "";
     public string Тип { get; set; } = "Строка";
     public string Комментарий { get; set; } = "";
+    /// <summary>История переименований: публикатор переименует колонку/значение, сохранив данные.</summary>
+    public List<string>? ПрежниеИмена { get; set; }
 }
 
 public class ТабличнаяЧасть
@@ -47,6 +49,7 @@ public class ОбъектМетаданных
     public string? Тип { get; set; }                       // для констант
     public string? Таблица { get; set; }                   // стабильное имя таблицы (cat_0000001)
     public string? Модуль { get; set; }                    // файл модуля бизнес-логики
+    public List<string>? ПрежниеИмена { get; set; }        // история переименований (константы: строка в таблице Константы)
     public List<Реквизит> Реквизиты { get; set; } = new();
     public List<Реквизит> Измерения { get; set; } = new();
     public List<Реквизит> Ресурсы { get; set; } = new();

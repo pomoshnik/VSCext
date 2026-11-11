@@ -154,6 +154,7 @@ function leafToJson(leaf) {
     j.Реквизиты = (leaf.children || []).map(leafToJson);
   }
   if (leaf.folderType === 'Формы' && leaf.form) j.Элементы = leaf.form;
+  if (leaf.prevNames && leaf.prevNames.length) j.ПрежниеИмена = leaf.prevNames;
   return j;
 }
 
@@ -162,6 +163,7 @@ function objectToJson(node, def) {
   if (node.type) j.Тип = node.type;
   if (node.table) j.Таблица = node.table;
   if (node.module) j.Модуль = node.module;
+  if (node.prevNames && node.prevNames.length) j.ПрежниеИмена = node.prevNames;
   for (const folder of (node.children || []).filter(c => c.kind === 'folder')) {
     const key = FOLDER_DEFS[folder.folderType].json;
     j[key] = (folder.children || []).map(leafToJson);
@@ -179,6 +181,7 @@ function jsonToLeaf(j, folderType) {
     leaf.children = (j.Реквизиты || []).map(r => jsonToLeaf(r, 'Реквизиты'));
   }
   if (folderType === 'Формы' && j.Элементы) leaf.form = j.Элементы;
+  if (j.ПрежниеИмена) leaf.prevNames = j.ПрежниеИмена;
   return leaf;
 }
 
@@ -189,6 +192,7 @@ function jsonToObject(j, def) {
   if (j.Тип) obj.type = j.Тип;
   if (j.Таблица) obj.table = j.Таблица;
   if (j.Модуль) obj.module = j.Модуль;
+  if (j.ПрежниеИмена) obj.prevNames = j.ПрежниеИмена;
   for (const folder of obj.children.filter(c => c.kind === 'folder')) {
     const key = FOLDER_DEFS[folder.folderType].json;
     folder.children = (j[key] || []).map(item => jsonToLeaf(item, folder.folderType));
@@ -562,6 +566,62 @@ async function cmdDelete(provider, treeView, node) {
   provider.refresh();
 }
 
+// --- Целостность при переименовании --------------------------------------
+// Как в 1С: данные и перекрёстные ссылки конфигурации не ломаются при смене имён.
+
+// Папки, чьи элементы соответствуют колонкам таблиц или хранимым значениям
+const PREV_NAME_FOLDERS = new Set(['Реквизиты', 'Измерения', 'Ресурсы', 'Значения']);
+
+function pushPrevName(node, oldName, newName) {
+  const prev = (node.prevNames || []).filter(n => n !== newName); // вернули старое имя — из истории убрать
+  if (!prev.includes(oldName)) prev.push(oldName);
+  node.prevNames = prev;
+}
+
+function applyRenameIntegrity(provider, node, oldName, newName) {
+  if (node.kind === 'object') {
+    // константы хранятся строками таблицы Константы — публикатору нужна история имён
+    if (node.classId === 'constants') pushPrevName(node, oldName, newName);
+    // ссылочные типы во всей конфигурации: СправочникСсылка.Старое -> СправочникСсылка.Новое
+    const def = classDefById(node.classId);
+    if (!def) return;
+    const oldType = def.kind1c + 'Ссылка.' + oldName;
+    const newType = def.kind1c + 'Ссылка.' + newName;
+    let fixed = 0;
+    const walk = n => {
+      if (n.type === oldType) { n.type = newType; fixed++; }
+      for (const c of n.children || []) walk(c);
+    };
+    walk(provider.model);
+    if (fixed > 0)
+      vscode.window.showInformationMessage(`Обновлены ссылочные типы «${oldType}» → «${newType}»: ${fixed}`);
+    return;
+  }
+  if (node.kind !== 'leaf') return;
+
+  // история имён — публикатор переименует колонку (реквизит) или значение (перечисление)
+  if (PREV_NAME_FOLDERS.has(node.folderType)) pushPrevName(node, oldName, newName);
+
+  // формы объекта-владельца ссылаются на реквизиты и табличные части по имени
+  let owner = provider.parents.get(node.id);
+  let внутриТЧ = false;
+  while (owner && owner.kind !== 'object') {
+    if (owner.kind === 'leaf' && owner.folderType === 'Табличные части') внутриТЧ = true;
+    owner = provider.parents.get(owner.id);
+  }
+  if (!owner) return;
+  const formsFolder = (owner.children || []).find(c => c.kind === 'folder' && c.folderType === 'Формы');
+  let formsFixed = 0;
+  for (const форма of (formsFolder && formsFolder.children) || []) {
+    for (const эл of форма.form || []) {
+      if (!внутриТЧ && node.folderType === 'Реквизиты' && эл.Реквизит === oldName) { эл.Реквизит = newName; formsFixed++; }
+      if (node.folderType === 'Табличные части' && эл.ТабличнаяЧасть === oldName) { эл.ТабличнаяЧасть = newName; formsFixed++; }
+    }
+  }
+  if (formsFixed > 0)
+    vscode.window.showInformationMessage(`Обновлены элементы форм объекта «${owner.name}»: ${formsFixed}`);
+}
+
 async function cmdRename(provider, treeView, node) {
   node = node || treeView.selection[0];
   if (!node) return;
@@ -574,6 +634,7 @@ async function cmdRename(provider, treeView, node) {
   const oldName = node.name;
   node.name = name;
   node.synonym = splitWords(name);
+  applyRenameIntegrity(provider, node, oldName, name);
   if (node.kind === 'object') renameModuleWithObject(provider.storage, node, oldName, name);
   provider.refresh();
 }
@@ -840,6 +901,7 @@ function ensurePropPanel(provider) {
       if (validateName(msg.value) || msg.value === n.name) return;
       const oldName = n.name;
       n.name = msg.value;
+      applyRenameIntegrity(provider, n, oldName, msg.value);
       if (n.kind === 'object') renameModuleWithObject(provider.storage, n, oldName, msg.value);
     } else if (msg.field === 'synonym') n.synonym = msg.value;
     else if (msg.field === 'comment') n.comment = msg.value;
