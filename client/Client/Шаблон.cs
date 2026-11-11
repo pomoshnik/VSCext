@@ -1,4 +1,6 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 
 namespace Client;
 
@@ -68,6 +70,18 @@ public static class Шаблон
     public static Button КнопкаСтроки(string текст, Action действие) => С(Кнопка(текст, действие), "rowBtn");
 
     // ------------------------------------------------------------------ редакторы полей
+    // --- Группы и страницы на форме (дерево элементов из дизайнера форм) ---
+    public static TextBlock ЗаголовокГруппы(string текст) =>
+        С(new TextBlock { Text = текст, FontWeight = Avalonia.Media.FontWeight.Bold, Margin = new Thickness(0, 8, 0, 2) }, "groupTitle");
+    public static StackPanel ПанельГруппы(bool горизонтально) => С(new StackPanel
+    {
+        Orientation = горизонтально ? Orientation.Horizontal : Orientation.Vertical,
+        Spacing = горизонтально ? 16 : 4
+    }, "formGroup");
+    public static TabControl Вкладки() => С(new TabControl { Margin = new Thickness(0, 4, 0, 4) }, "formTabs");
+    public static StackPanel ПанельСтраницы() => С(new StackPanel { Spacing = 4, Margin = new Thickness(0, 6, 0, 0) }, "formPage");
+    public static TabItem Вкладка(string заголовок, Control содержимое) => new() { Header = заголовок, Content = содержимое };
+
     public static TextBox ПолеВвода() => С(new TextBox(), "field");
     public static CheckBox Флажок() => new();
     public static ComboBox ПолеВыбора() => С(new ComboBox(), "field");

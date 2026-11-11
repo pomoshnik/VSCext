@@ -26,12 +26,14 @@ public class ТабличнаяЧасть
 
 public class ЭлементУправленияФормы
 {
-    public string Тип { get; set; } = "Поле";       // Поле | Таблица | Кнопка
+    public string Тип { get; set; } = "Поле";       // Поле | Таблица | Кнопка | Группа | Страницы | Страница
     public string? Реквизит { get; set; }
     public string? ТабличнаяЧасть { get; set; }
     public string? Заголовок { get; set; }
     public string? Действие { get; set; }
     public bool ТолькоПросмотр { get; set; }
+    public string? Группировка { get; set; }        // для группы: Вертикальная | Горизонтальная
+    public List<ЭлементУправленияФормы>? Элементы { get; set; }  // вложенные элементы (иерархия, как в дереве элементов 1С)
 }
 
 public class ЭлементФормы
