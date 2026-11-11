@@ -22,6 +22,11 @@ public partial class MainWindow : Window
     ОбъектМетаданных? _текущий;
     List<string> _колонки = new();
 
+    // Удобства списка: поиск и сортировка
+    TextBox? _полеПоиска;
+    string? _сортКолонкаИмя;
+    bool _сортУбывание;
+
     /// <summary>Конструктор для предпросмотрщика (дизайнера) — без загрузки конфигурации и БД.</summary>
     public MainWindow()
     {
@@ -67,7 +72,22 @@ public partial class MainWindow : Window
         // «Остатки» — только для регистров накопления (добавляется к панели кнопок)
         _кнОстатки = Шаблон.Кнопка("Остатки", ПоказатьОстатки);
         _кнОстатки.IsVisible = false;
-        if (_кнОбновить.Parent is Panel панельКнопок) панельКнопок.Children.Add(_кнОстатки);
+        if (_кнОбновить.Parent is Panel панельКнопок)
+        {
+            панельКнопок.Children.Add(_кнОстатки);
+
+            // Поиск по списку (фильтр по всем колонкам, как строка поиска в 1С)
+            _полеПоиска = Шаблон.ПолеВвода();
+            _полеПоиска.Watermark = "Поиск (Ctrl+F)";
+            _полеПоиска.Width = 220;
+            _полеПоиска.TextChanged += (_, _) => ПоказатьСписок();
+            панельКнопок.Children.Add(_полеПоиска);
+        }
+        KeyDown += (_, е) =>
+        {
+            if (е.Key == Avalonia.Input.Key.F && е.KeyModifiers == Avalonia.Input.KeyModifiers.Control)
+            { _полеПоиска?.Focus(); е.Handled = true; }
+        };
 
         ПостроитьДерево();
         _дерево.SelectionChanged += (_, _) =>
@@ -75,6 +95,9 @@ public partial class MainWindow : Window
             if (_дерево.SelectedItem is TreeViewItem { Tag: ОбъектМетаданных о })
             {
                 _текущий = о;
+                _сортКолонкаИмя = null;
+                _сортУбывание = false;
+                if (_полеПоиска != null) _полеПоиска.Text = "";
                 ПоказатьСписок();
             }
         };
@@ -136,8 +159,21 @@ public partial class MainWindow : Window
         _кнДобавить.IsEnabled = _кнИзменить.IsEnabled = _кнУдалить.IsEnabled = редактируемый;
         if (_кнОстатки != null) _кнОстатки.IsVisible = _текущий.Вид == "РегистрНакопления";
 
+        // Заголовки: клик — сортировка (повторный клик — обратный порядок)
         foreach (var к in колонки)
-            _шапкаТаблицы.Children.Add(Шаблон.ЯчейкаШапки(к));
+        {
+            var текст = к == _сортКолонкаИмя ? к + (_сортУбывание ? " ▼" : " ▲") : к;
+            var ячейка = Шаблон.ЯчейкаШапки(текст);
+            ячейка.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+            var имяКолонки = к;
+            ячейка.PointerPressed += (_, _) =>
+            {
+                if (_сортКолонкаИмя == имяКолонки) _сортУбывание = !_сортУбывание;
+                else { _сортКолонкаИмя = имяКолонки; _сортУбывание = false; }
+                ПоказатьСписок();
+            };
+            _шапкаТаблицы.Children.Add(ячейка);
+        }
 
         if (!_база.ТаблицаЕсть(таблица))
         {
@@ -147,9 +183,12 @@ public partial class MainWindow : Window
 
         var порядок = колонки.FirstOrDefault(к => к != "Проведен");
         var строки = _база.Выбрать(таблица, порядок);
+
+        // Отображаемые значения считаем один раз: по ним работают и поиск, и сортировка
+        var представления = new List<(Dictionary<string, object?> Строка, List<string> Значения)>();
         foreach (var строка in строки)
         {
-            var панель = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
+            var значения = new List<string>();
             foreach (var к in колонки)
             {
                 var значение = строка.TryGetValue(к, out var v) ? v?.ToString() ?? "" : "";
@@ -158,11 +197,49 @@ public partial class MainWindow : Window
                 var тип = ТипКолонки(_текущий, к);
                 if (тип != null && тип.Contains("Ссылка."))
                     значение = _база.Представление(тип, значение);
-                панель.Children.Add(Шаблон.Ячейка(значение));
+                значения.Add(значение);
             }
+            представления.Add((строка, значения));
+        }
+
+        // Поиск: подстрока в любой колонке (без учёта регистра)
+        var видимые = представления;
+        var поиск = _полеПоиска?.Text?.Trim() ?? "";
+        if (поиск.Length > 0)
+            видимые = видимые
+                .Where(п => п.Значения.Any(з => з.Contains(поиск, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+        // Сортировка по выбранной колонке: числа — численно, остальное — по алфавиту
+        if (_сортКолонкаИмя != null)
+        {
+            var индекс = колонки.IndexOf(_сортКолонкаИмя);
+            if (индекс >= 0)
+            {
+                int Сравнить((Dictionary<string, object?>, List<string> Значения) а, (Dictionary<string, object?>, List<string> Значения) б)
+                {
+                    var x = а.Значения[индекс];
+                    var y = б.Значения[индекс];
+                    if (decimal.TryParse(x, System.Globalization.CultureInfo.InvariantCulture, out var чх) &&
+                        decimal.TryParse(y, System.Globalization.CultureInfo.InvariantCulture, out var чy))
+                        return чх.CompareTo(чy);
+                    return string.Compare(x, y, StringComparison.CurrentCultureIgnoreCase);
+                }
+                видимые = видимые.OrderBy(п => п, Comparer<(Dictionary<string, object?>, List<string>)>.Create(
+                    (а, б) => _сортУбывание ? Сравнить(б, а) : Сравнить(а, б))).ToList();
+            }
+        }
+
+        foreach (var (строка, значения) in видимые)
+        {
+            var панель = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
+            foreach (var значение in значения)
+                панель.Children.Add(Шаблон.Ячейка(значение));
             _списокЗаписей.Items.Add(new ListBoxItem { Content = панель, Tag = строка });
         }
-        _статус.Text = $"{_текущий.ПолноеИмя} — записей: {строки.Count}";
+        _статус.Text = видимые.Count == строки.Count
+            ? $"{_текущий.ПолноеИмя} — записей: {строки.Count}"
+            : $"{_текущий.ПолноеИмя} — показано {видимые.Count} из {строки.Count}";
     }
 
     void ПоказатьОстатки()
