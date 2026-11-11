@@ -6,7 +6,7 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build-client",
-      "program": "${workspaceFolder}/client/Client/bin/Debug/net8.0/Client.dll",
+      "program": "${workspaceFolder}/client/Client/bin/Debug/net10.0/Client.dll",
       "args": ["${workspaceFolder}"],
       "cwd": "${workspaceFolder}",
       "console": "internalConsole",
@@ -17,7 +17,7 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build-publisher",
-      "program": "${workspaceFolder}/tools/Publisher/bin/Debug/net8.0/Publisher.dll",
+      "program": "${workspaceFolder}/tools/Publisher/bin/Debug/net10.0/Publisher.dll",
       "args": ["metadata", "data/app.db"],
       "cwd": "${workspaceFolder}",
       "console": "internalConsole"
