@@ -126,6 +126,32 @@
       <Setter Property="Margin" Value="4,3" />
     </Style>
 
+    <!-- Табличные части на форме записи -->
+    <!-- заголовок табличной части -->
+    <Style Selector="TextBlock.vtTitle">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="0,10,0,2" />
+    </Style>
+    <!-- ячейка шапки таблицы -->
+    <Style Selector="TextBlock.vtHeaderCell">
+      <Setter Property="Width" Value="140" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <!-- редакторы в ячейках таблицы -->
+    <Style Selector="TextBox.cellEdit">
+      <Setter Property="Width" Value="140" />
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+    <Style Selector="ComboBox.cellEdit">
+      <Setter Property="Width" Value="140" />
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+    <!-- маленькая кнопка в строке таблицы (удаление строки) -->
+    <Style Selector="Button.rowBtn">
+      <Setter Property="Padding" Value="8,2" />
+    </Style>
+
     <!-- Рамки панелей -->
     <Style Selector="Border.pane">
       <Setter Property="BorderThickness" Value="1"/>

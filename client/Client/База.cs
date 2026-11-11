@@ -20,6 +20,22 @@ public class База : IDisposable
         _соединение.Open();
     }
 
+    /// <summary>Снимок метаданных из опубликованной базы (или null, если база не публиковалась).</summary>
+    public static string? СнимокМетаданных(string файлБД)
+    {
+        if (!File.Exists(файлБД)) return null;
+        try
+        {
+            using var соединение = new SqliteConnection($"Data Source={файлБД};Mode=ReadOnly");
+            соединение.Open();
+            using var к = соединение.CreateCommand();
+            к.CommandText = "SELECT Метаданные FROM _Конфигурация LIMIT 1";
+            var результат = к.ExecuteScalar();
+            return результат is string json && json.Length > 0 ? json : null;
+        }
+        catch { return null; } // нет таблицы/колонки — база старой публикации
+    }
+
     /// <summary>Стабильное имя таблицы из метаданных (cat_/doc_/enm_/inf_/acc_/vt_).</summary>
     public static string ИмяТаблицы(ОбъектМетаданных о) =>
         о.Таблица ?? throw new InvalidOperationException(
@@ -83,6 +99,52 @@ public class База : IDisposable
         if (string.IsNullOrEmpty(значение)) return "";
         var найдено = СписокВыбора(тип).FirstOrDefault(п => п.Ссылка == значение);
         return найдено.Представление ?? значение;
+    }
+
+    /// <summary>Строки таблицы по значению ключа (например, строки ТЧ по Ссылке владельца).</summary>
+    public List<Dictionary<string, object?>> Строки(string таблица, string ключ, string значение, string? порядок = null)
+    {
+        var строки = new List<Dictionary<string, object?>>();
+        if (!ТаблицаЕсть(таблица)) return строки;
+        using var к = _соединение.CreateCommand();
+        к.CommandText = $"SELECT * FROM \"{таблица}\" WHERE \"{ключ}\" = @v" + (порядок != null ? $" ORDER BY \"{порядок}\"" : "");
+        к.Parameters.AddWithValue("@v", значение);
+        using var ч = к.ExecuteReader();
+        while (ч.Read())
+        {
+            var строка = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < ч.FieldCount; i++)
+                строка[ч.GetName(i)] = ч.IsDBNull(i) ? null : ч.GetValue(i);
+            строки.Add(строка);
+        }
+        return строки;
+    }
+
+    /// <summary>Полностью перезаписывает строки ТЧ владельца (DELETE + INSERT в транзакции).</summary>
+    public void ЗаписатьСтроки(string таблица, string ссылка, List<Dictionary<string, object?>> строки)
+    {
+        if (!ТаблицаЕсть(таблица)) return;
+        using var транзакция = _соединение.BeginTransaction();
+        using (var к = _соединение.CreateCommand())
+        {
+            к.Transaction = транзакция;
+            к.CommandText = $"DELETE FROM \"{таблица}\" WHERE \"Ссылка\" = @v";
+            к.Parameters.AddWithValue("@v", ссылка);
+            к.ExecuteNonQuery();
+        }
+        foreach (var строка in строки)
+        {
+            var имена = строка.Keys.ToList();
+            using var к = _соединение.CreateCommand();
+            к.Transaction = транзакция;
+            var колонки = string.Join(", ", имена.Select(и => $"\"{и}\""));
+            var параметры = string.Join(", ", имена.Select((_, i) => $"@p{i}"));
+            к.CommandText = $"INSERT INTO \"{таблица}\" ({колонки}) VALUES ({параметры})";
+            for (int i = 0; i < имена.Count; i++)
+                к.Parameters.AddWithValue($"@p{i}", строка[имена[i]] ?? "");
+            к.ExecuteNonQuery();
+        }
+        транзакция.Commit();
     }
 
     public void Записать(string таблица, Dictionary<string, object?> поля, string ключ = "Ссылка")

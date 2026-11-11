@@ -60,6 +60,13 @@ public static class Шаблон
     public static TextBlock ЯчейкаШапки(string текст) => С(new TextBlock { Text = текст }, "headerCell");
     public static TextBlock Ячейка(string текст) => С(new TextBlock { Text = текст }, "cell");
 
+    // ------------------------------------------------------------------ табличные части
+    public static TextBlock ЗаголовокТЧ(string текст) => С(new TextBlock { Text = текст }, "vtTitle");
+    public static TextBlock ЯчейкаШапкиТЧ(string текст) => С(new TextBlock { Text = текст }, "vtHeaderCell");
+    public static TextBox ПолеЯчейки() => С(new TextBox(), "cellEdit");
+    public static ComboBox ВыборЯчейки() => С(new ComboBox(), "cellEdit");
+    public static Button КнопкаСтроки(string текст, Action действие) => С(Кнопка(текст, действие), "rowBtn");
+
     // ------------------------------------------------------------------ редакторы полей
     public static TextBox ПолеВвода() => С(new TextBox(), "field");
     public static CheckBox Флажок() => new();

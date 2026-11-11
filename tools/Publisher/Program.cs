@@ -200,14 +200,16 @@ foreach (var рег in конфиг.ПоВиду("РегистрНакоплен
 }
 
 // --- Служебная таблица с версией конфигурации ---
-Таблица("_Конфигурация", new() { ("Имя", "TEXT"), ("Версия", "TEXT"), ("ДатаПубликации", "TEXT") });
+Таблица("_Конфигурация", new() { ("Имя", "TEXT"), ("Версия", "TEXT"), ("ДатаПубликации", "TEXT"), ("Метаданные", "TEXT") });
 Выполнить("DELETE FROM _Конфигурация");
 using (var команда = соединение.CreateCommand())
 {
-    команда.CommandText = "INSERT INTO _Конфигурация VALUES(@и, @в, @д)";
+    // полный снимок метаданных — клиент может работать без каталога metadata/
+    команда.CommandText = "INSERT INTO _Конфигурация (Имя, Версия, ДатаПубликации, Метаданные) VALUES(@и, @в, @д, @м)";
     команда.Parameters.AddWithValue("@и", конфиг.Имя);
     команда.Parameters.AddWithValue("@в", конфиг.Версия);
     команда.Parameters.AddWithValue("@д", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+    команда.Parameters.AddWithValue("@м", ЗагрузчикМетаданных.ВСнимок(конфиг));
     команда.ExecuteNonQuery();
 }
 

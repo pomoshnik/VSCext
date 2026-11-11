@@ -17,6 +17,32 @@ function attrsOf(objNode, folderType) {
   return folderItems(objNode, folderType).map(l => ({ name: l.name, synonym: l.synonym || l.name, type: l.type || 'Строка' }));
 }
 
+// Снимок метаданных: Конфигурация.json + все объекты из каталога metadata/
+function собратьСнимок(metadataDir, config) {
+  const снимок = { Имя: config.name, Синоним: config.synonym || '', Версия: config.version || '', Комментарий: '', Объекты: [] };
+  try {
+    const корневой = path.join(metadataDir, 'Конфигурация.json');
+    if (fs.existsSync(корневой)) {
+      const k = JSON.parse(fs.readFileSync(корневой, 'utf8'));
+      снимок.Синоним = k.Синоним || снимок.Синоним;
+      снимок.Комментарий = k.Комментарий || '';
+    }
+    const обойти = dir => {
+      for (const имя of fs.readdirSync(dir)) {
+        const полный = path.join(dir, имя);
+        if (fs.statSync(полный).isDirectory()) { обойти(полный); continue; }
+        if (!имя.endsWith('.json') || имя === 'Конфигурация.json') continue;
+        try {
+          const o = JSON.parse(fs.readFileSync(полный, 'utf8'));
+          if (o && o.Имя) снимок.Объекты.push(o);
+        } catch { /* битый файл пропускаем */ }
+      }
+    };
+    if (fs.existsSync(metadataDir)) обойти(metadataDir);
+  } catch { /* снимок не критичен для публикации таблиц */ }
+  return JSON.stringify(снимок);
+}
+
 function requireTable(o, вид) {
   if (!o.table) throw new Error('У объекта «' + вид + '.' + o.name + '» не задано имя таблицы. Откройте дерево конфигурации — имена присваиваются автоматически.');
   return o.table;
@@ -188,11 +214,13 @@ async function publish(model, rootPath, extensionDir) {
     ensureTable(r.table, cols);
   }
 
-  // Версия конфигурации
-  ensureTable('_Конфигурация', [['Имя', 'TEXT'], ['Версия', 'TEXT'], ['ДатаПубликации', 'TEXT']]);
+  // Версия конфигурации + полный снимок метаданных (клиент может работать без каталога metadata/)
+  ensureTable('_Конфигурация', [['Имя', 'TEXT'], ['Версия', 'TEXT'], ['ДатаПубликации', 'TEXT'], ['Метаданные', 'TEXT']]);
   db.run('DELETE FROM _Конфигурация');
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  db.run(`INSERT INTO _Конфигурация VALUES(${quoteStr(data.config.name)}, ${quoteStr(data.config.version)}, ${quoteStr(now)})`);
+  const снимок = собратьСнимок(path.join(rootPath, 'metadata'), data.config);
+  db.run('INSERT INTO _Конфигурация (Имя, Версия, ДатаПубликации, Метаданные) VALUES(?, ?, ?, ?)',
+    [data.config.name, data.config.version, now, снимок]);
 
   fs.writeFileSync(dbPath, Buffer.from(db.export()));
   db.close();

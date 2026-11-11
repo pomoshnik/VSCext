@@ -18,7 +18,8 @@ public partial class App : Application
         {
             var args = desktop.Args ?? Array.Empty<string>();
             // путь базы в аргументах — открываем сразу (для запуска из отладчика/конфигуратора)
-            if (args.Length > 0 && Directory.Exists(Path.Combine(args[0], "metadata")))
+            if (args.Length > 0 && (Directory.Exists(Path.Combine(args[0], "metadata"))
+                                  || File.Exists(Path.Combine(args[0], "data", "app.db"))))
                 desktop.MainWindow = new MainWindow(Path.GetFullPath(args[0]));
             else
                 desktop.MainWindow = new ОкноЗапуска(); // окно выбора базы, как в 1С
