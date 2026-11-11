@@ -5,15 +5,45 @@
       "label": "build-client",
       "command": "dotnet",
       "type": "process",
-      "args": ["build", "${workspaceFolder}/client/Client/Client.csproj", "-v", "q"],
+      "args": [
+        "build",
+        "${workspaceFolder}/client/Client/Client.csproj",
+        "-v",
+        "q"
+      ],
       "problemMatcher": "$msCompile"
     },
     {
       "label": "build-publisher",
       "command": "dotnet",
       "type": "process",
-      "args": ["build", "${workspaceFolder}/tools/Publisher/Publisher.csproj", "-v", "q"],
+      "args": [
+        "build",
+        "${workspaceFolder}/tools/Publisher/Publisher.csproj",
+        "-v",
+        "q"
+      ],
       "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "git: сохранить всё",
+      "type": "shell",
+      "command": "git add -A && (git diff --cached --quiet && echo Нет изменений || (git commit -m \"Изменения ${input:сообщение}\" && git push)) ",
+      "problemMatcher": []
+    },
+    {
+      "label": "git: получить обновления",
+      "type": "shell",
+      "command": "git pull --rebase --autostash",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "сообщение",
+      "type": "promptString",
+      "description": "Что изменилось? (пустая строка — просто «Изменения»)",
+      "default": ""
     }
   ]
 }

@@ -1,0 +1,40 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "D:\\PROG\\1CArena\\VSCext\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{10427C37-D93E-401C-B17D-9518C10BE435}|client\\Client\\Client.csproj|d:\\prog\\1carena\\vscext\\client\\client\\\u043E\u043A\u043D\u043E\u0437\u0430\u043F\u0443\u0441\u043A\u0430.axaml||{6D5344A2-2FCD-49DE-A09D-6A14FD1B1224}",
+      "RelativeMoniker": "D:0:0:{10427C37-D93E-401C-B17D-9518C10BE435}|client\\Client\\Client.csproj|solutionrelative:client\\client\\\u043E\u043A\u043D\u043E\u0437\u0430\u043F\u0443\u0441\u043A\u0430.axaml||{6D5344A2-2FCD-49DE-A09D-6A14FD1B1224}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{aa2115a1-9712-457b-9047-dbb71ca2cdd2}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "\u041E\u043A\u043D\u043E\u0417\u0430\u043F\u0443\u0441\u043A\u0430.axaml",
+              "DocumentMoniker": "D:\\PROG\\1CArena\\VSCext\\client\\Client\\\u041E\u043A\u043D\u043E\u0417\u0430\u043F\u0443\u0441\u043A\u0430.axaml",
+              "RelativeDocumentMoniker": "client\\Client\\\u041E\u043A\u043D\u043E\u0417\u0430\u043F\u0443\u0441\u043A\u0430.axaml",
+              "ToolTip": "D:\\PROG\\1CArena\\VSCext\\client\\Client\\\u041E\u043A\u043D\u043E\u0417\u0430\u043F\u0443\u0441\u043A\u0430.axaml",
+              "RelativeToolTip": "client\\Client\\\u041E\u043A\u043D\u043E\u0417\u0430\u043F\u0443\u0441\u043A\u0430.axaml",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003549|",
+              "WhenOpened": "2026-11-11T06:47:05.023Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
