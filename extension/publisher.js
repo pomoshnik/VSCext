@@ -13,9 +13,20 @@ function folderItems(objNode, folderType) {
   return folder ? (folder.children || []) : [];
 }
 
+function requireColumn(l, где) {
+  if (!l.column) throw new Error(
+    `У реквизита «${где}.${l.name}» не задано имя колонки. ` +
+    'Откройте конфигурацию в конфигураторе (VS Code) — имена колонок будут присвоены автоматически — и повторите публикацию.');
+  return l.column;
+}
+
 function attrsOf(objNode, folderType) {
-  return folderItems(objNode, folderType).map(l =>
-    ({ name: l.name, synonym: l.synonym || l.name, type: l.type || 'Строка', prev: l.prevNames || [] }));
+  return folderItems(objNode, folderType).map(l => ({
+    name: l.name, synonym: l.synonym || l.name, type: l.type || 'Строка',
+    col: requireColumn(l, objNode.name),
+    // кандидаты на переименование колонки в старых базах: текущее имя и история имён
+    oldCols: [l.name, ...(l.prevNames || [])]
+  }));
 }
 
 // Снимок метаданных: Конфигурация.json + все объекты из каталога metadata/
@@ -60,7 +71,11 @@ function collect(model) {
     name: t.name,
     table: requireTable({ name: `${o.name}.${t.name}`, table: t.table }, 'ТабличнаяЧасть'),
     legacy: `${legacyPrefix}_${o.name}_${t.name}`, // только для миграции баз до v0.5.0
-    attrs: (t.children || []).map(l => ({ name: l.name, type: l.type || 'Строка', prev: l.prevNames || [] }))
+    attrs: (t.children || []).map(l => ({
+      name: l.name, type: l.type || 'Строка',
+      col: requireColumn(l, `${o.name}.${t.name}`),
+      oldCols: [l.name, ...(l.prevNames || [])]
+    }))
   }));
   for (const o of cls('catalogs').children) {
     data.catalogs.push({
@@ -181,12 +196,12 @@ async function publish(model, rootPath, extensionDir) {
   for (const c of data.catalogs) {
     migrate(c.legacy, c.table);
     const cols = [['Ссылка', 'TEXT NOT NULL'], ['Код', "TEXT DEFAULT ''"], ['Наименование', "TEXT DEFAULT ''"], ['ПометкаУдаления', 'INTEGER DEFAULT 0']];
-    cols.push(...c.attrs.map(a => [a.name, sqlType(a.type), a.prev]));
+    cols.push(...c.attrs.map(a => [a.col, sqlType(a.type), a.oldCols]));
     ensureTable(c.table, cols, '"Ссылка"');
     for (const t of c.tabulars) {
       migrate(t.legacy, t.table);
       const tc = [['Ссылка', 'TEXT NOT NULL'], ['НомерСтроки', 'INTEGER']];
-      tc.push(...t.attrs.map(a => [a.name, sqlType(a.type), a.prev]));
+      tc.push(...t.attrs.map(a => [a.col, sqlType(a.type), a.oldCols]));
       ensureTable(t.table, tc);
     }
   }
@@ -195,12 +210,12 @@ async function publish(model, rootPath, extensionDir) {
   for (const d of data.documents) {
     migrate(d.legacy, d.table);
     const cols = [['Ссылка', 'TEXT NOT NULL'], ['Номер', "TEXT DEFAULT ''"], ['Дата', "TEXT DEFAULT ''"], ['Проведен', 'INTEGER DEFAULT 0'], ['ПометкаУдаления', 'INTEGER DEFAULT 0']];
-    cols.push(...d.attrs.map(a => [a.name, sqlType(a.type), a.prev]));
+    cols.push(...d.attrs.map(a => [a.col, sqlType(a.type), a.oldCols]));
     ensureTable(d.table, cols, '"Ссылка"');
     for (const t of d.tabulars) {
       migrate(t.legacy, t.table);
       const tc = [['Ссылка', 'TEXT NOT NULL'], ['НомерСтроки', 'INTEGER']];
-      tc.push(...t.attrs.map(a => [a.name, sqlType(a.type), a.prev]));
+      tc.push(...t.attrs.map(a => [a.col, sqlType(a.type), a.oldCols]));
       ensureTable(t.table, tc);
     }
   }
@@ -227,8 +242,8 @@ async function publish(model, rootPath, extensionDir) {
   // Регистры сведений
   for (const r of data.infoRegs) {
     migrate(r.legacy, r.table);
-    const cols = [...r.dims, ...r.ress, ...r.attrs].map(a => [a.name, sqlType(a.type), a.prev]);
-    const pk = r.dims.map(d => `"${d.name}"`).join(', ');
+    const cols = [...r.dims, ...r.ress, ...r.attrs].map(a => [a.col, sqlType(a.type), a.oldCols]);
+    const pk = r.dims.map(d => `"${d.col}"`).join(', ');
     ensureTable(r.table, cols, pk || null);
   }
 
@@ -236,7 +251,7 @@ async function publish(model, rootPath, extensionDir) {
   for (const r of data.accumRegs) {
     migrate(r.legacy, r.table);
     const cols = [['Регистратор', "TEXT DEFAULT ''"], ['Период', "TEXT DEFAULT ''"], ['ВидДвижения', "TEXT DEFAULT 'Приход'"]];
-    cols.push(...[...r.dims, ...r.ress].map(a => [a.name, sqlType(a.type), a.prev]));
+    cols.push(...[...r.dims, ...r.ress].map(a => [a.col, sqlType(a.type), a.oldCols]));
     ensureTable(r.table, cols);
   }
 
@@ -244,17 +259,17 @@ async function publish(model, rootPath, extensionDir) {
   if (переименованияЗначений.length) {
     const колонкиСсылок = []; // [таблица, колонка, тип]
     for (const c of data.catalogs) {
-      c.attrs.forEach(a => колонкиСсылок.push([c.table, a.name, a.type]));
-      c.tabulars.forEach(t => t.attrs.forEach(a => колонкиСсылок.push([t.table, a.name, a.type])));
+      c.attrs.forEach(a => колонкиСсылок.push([c.table, a.col, a.type]));
+      c.tabulars.forEach(t => t.attrs.forEach(a => колонкиСсылок.push([t.table, a.col, a.type])));
     }
     for (const d of data.documents) {
-      d.attrs.forEach(a => колонкиСсылок.push([d.table, a.name, a.type]));
-      d.tabulars.forEach(t => t.attrs.forEach(a => колонкиСсылок.push([t.table, a.name, a.type])));
+      d.attrs.forEach(a => колонкиСсылок.push([d.table, a.col, a.type]));
+      d.tabulars.forEach(t => t.attrs.forEach(a => колонкиСсылок.push([t.table, a.col, a.type])));
     }
     for (const r of data.infoRegs)
-      [...r.dims, ...r.ress, ...r.attrs].forEach(a => колонкиСсылок.push([r.table, a.name, a.type]));
+      [...r.dims, ...r.ress, ...r.attrs].forEach(a => колонкиСсылок.push([r.table, a.col, a.type]));
     for (const r of data.accumRegs)
-      [...r.dims, ...r.ress].forEach(a => колонкиСсылок.push([r.table, a.name, a.type]));
+      [...r.dims, ...r.ress].forEach(a => колонкиСсылок.push([r.table, a.col, a.type]));
     for (const [переч, старое, новое] of переименованияЗначений)
       for (const [табл, кол, тип] of колонкиСсылок)
         if (тип === 'ПеречислениеСсылка.' + переч) {

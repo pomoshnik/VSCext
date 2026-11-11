@@ -9,9 +9,42 @@ public class База : IDisposable
     readonly SqliteConnection _соединение;
     readonly Конфигурация _конфиг;
 
+    // Маппинг «имя реквизита <-> стабильная колонка fld_…» по таблицам.
+    // Весь клиент и бизнес-логика работают с ИМЕНАМИ; колонки видит только этот слой
+    // (как в 1С: _Fld123 существует только на уровне СУБД).
+    readonly Dictionary<string, Dictionary<string, string>> _вКолонку = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, Dictionary<string, string>> _изКолонки = new(StringComparer.OrdinalIgnoreCase);
+
+    void ДобавитьМаппинг(string? таблица, IEnumerable<Реквизит> реквизиты)
+    {
+        if (таблица == null) return;
+        var прямой = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var обратный = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var р in реквизиты)
+        {
+            var колонка = р.Колонка ?? р.Имя; // старые метаданные без колонок — работаем по именам
+            прямой[р.Имя] = колонка;
+            обратный[колонка] = р.Имя;
+        }
+        _вКолонку[таблица] = прямой;
+        _изКолонки[таблица] = обратный;
+    }
+
+    string ВКолонку(string таблица, string имя) =>
+        _вКолонку.TryGetValue(таблица, out var м) && м.TryGetValue(имя, out var к) ? к : имя;
+
+    string ИзКолонки(string таблица, string колонка) =>
+        _изКолонки.TryGetValue(таблица, out var м) && м.TryGetValue(колонка, out var и) ? и : колонка;
+
     public База(string файл, Конфигурация конфиг)
     {
         _конфиг = конфиг;
+        foreach (var о in конфиг.Объекты)
+        {
+            ДобавитьМаппинг(о.Таблица, о.Реквизиты.Concat(о.Измерения).Concat(о.Ресурсы));
+            foreach (var тч in о.ТабличныеЧасти)
+                ДобавитьМаппинг(тч.Таблица, тч.Реквизиты);
+        }
         // каталог может отсутствовать (data/*.db не хранится в git) — создаём,
         // иначе SQLite падает с «Error 14: unable to open database file»
         var каталог = Path.GetDirectoryName(Path.GetFullPath(файл));
@@ -55,13 +88,13 @@ public class База : IDisposable
         var строки = new List<Dictionary<string, object?>>();
         if (!ТаблицаЕсть(таблица)) return строки;
         using var к = _соединение.CreateCommand();
-        к.CommandText = $"SELECT * FROM \"{таблица}\"" + (порядок != null ? $" ORDER BY \"{порядок}\"" : "");
+        к.CommandText = $"SELECT * FROM \"{таблица}\"" + (порядок != null ? $" ORDER BY \"{ВКолонку(таблица, порядок)}\"" : "");
         using var ч = к.ExecuteReader();
         while (ч.Read())
         {
             var строка = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < ч.FieldCount; i++)
-                строка[ч.GetName(i)] = ч.IsDBNull(i) ? null : ч.GetValue(i);
+                строка[ИзКолонки(таблица, ч.GetName(i))] = ч.IsDBNull(i) ? null : ч.GetValue(i);
             строки.Add(строка);
         }
         return строки;
@@ -107,14 +140,14 @@ public class База : IDisposable
         var строки = new List<Dictionary<string, object?>>();
         if (!ТаблицаЕсть(таблица)) return строки;
         using var к = _соединение.CreateCommand();
-        к.CommandText = $"SELECT * FROM \"{таблица}\" WHERE \"{ключ}\" = @v" + (порядок != null ? $" ORDER BY \"{порядок}\"" : "");
+        к.CommandText = $"SELECT * FROM \"{таблица}\" WHERE \"{ВКолонку(таблица, ключ)}\" = @v" + (порядок != null ? $" ORDER BY \"{ВКолонку(таблица, порядок)}\"" : "");
         к.Parameters.AddWithValue("@v", значение);
         using var ч = к.ExecuteReader();
         while (ч.Read())
         {
             var строка = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < ч.FieldCount; i++)
-                строка[ч.GetName(i)] = ч.IsDBNull(i) ? null : ч.GetValue(i);
+                строка[ИзКолонки(таблица, ч.GetName(i))] = ч.IsDBNull(i) ? null : ч.GetValue(i);
             строки.Add(строка);
         }
         return строки;
@@ -137,7 +170,7 @@ public class База : IDisposable
             var имена = строка.Keys.ToList();
             using var к = _соединение.CreateCommand();
             к.Transaction = транзакция;
-            var колонки = string.Join(", ", имена.Select(и => $"\"{и}\""));
+            var колонки = string.Join(", ", имена.Select(и => $"\"{ВКолонку(таблица, и)}\""));
             var параметры = string.Join(", ", имена.Select((_, i) => $"@p{i}"));
             к.CommandText = $"INSERT INTO \"{таблица}\" ({колонки}) VALUES ({параметры})";
             for (int i = 0; i < имена.Count; i++)
@@ -151,7 +184,7 @@ public class База : IDisposable
     {
         var имена = поля.Keys.ToList();
         using var к = _соединение.CreateCommand();
-        var колонки = string.Join(", ", имена.Select(и => $"\"{и}\""));
+        var колонки = string.Join(", ", имена.Select(и => $"\"{ВКолонку(таблица, и)}\""));
         var параметры = string.Join(", ", имена.Select((_, i) => $"@p{i}"));
         к.CommandText = $"INSERT OR REPLACE INTO \"{таблица}\" ({колонки}) VALUES ({параметры})";
         for (int i = 0; i < имена.Count; i++)
@@ -162,7 +195,7 @@ public class База : IDisposable
     public void Удалить(string таблица, string ключ, string значение)
     {
         using var к = _соединение.CreateCommand();
-        к.CommandText = $"DELETE FROM \"{таблица}\" WHERE \"{ключ}\" = @v";
+        к.CommandText = $"DELETE FROM \"{таблица}\" WHERE \"{ВКолонку(таблица, ключ)}\" = @v";
         к.Parameters.AddWithValue("@v", значение);
         к.ExecuteNonQuery();
     }

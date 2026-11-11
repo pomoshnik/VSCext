@@ -10,7 +10,9 @@ public class Реквизит
     public string Синоним { get; set; } = "";
     public string Тип { get; set; } = "Строка";
     public string Комментарий { get; set; } = "";
-    /// <summary>История переименований: публикатор переименует колонку/значение, сохранив данные.</summary>
+    /// <summary>Стабильное имя колонки в базе (fld_0000001) — не зависит от имени реквизита.</summary>
+    public string? Колонка { get; set; }
+    /// <summary>История переименований: нужна для миграции баз со старыми именами колонок/значений.</summary>
     public List<string>? ПрежниеИмена { get; set; }
 }
 

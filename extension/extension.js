@@ -108,6 +108,9 @@ function classDefById(id) {
 
 const TABLE_PREFIX = { catalogs: 'cat', documents: 'doc', enums: 'enm', infoRegs: 'inf', accumRegs: 'acc' };
 const VT_PREFIX = 'vt';
+const COL_PREFIX = 'fld';
+// Папки, чьи элементы хранятся в колонках таблиц — им присваиваются стабильные имена колонок
+const COLUMN_FOLDERS = new Set(['Реквизиты', 'Измерения', 'Ресурсы']);
 
 function nextTableName(model, prefix) {
   let max = 0;
@@ -121,6 +124,41 @@ function nextTableName(model, prefix) {
   };
   walk(model);
   return prefix + '_' + String(max + 1).padStart(7, '0');
+}
+
+function nextColumnName(model) {
+  let max = 0;
+  const re = new RegExp('^' + COL_PREFIX + '_(\\d+)$');
+  const walk = n => {
+    if (n.column) {
+      const m = re.exec(n.column);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    (n.children || []).forEach(walk);
+  };
+  walk(model);
+  return COL_PREFIX + '_' + String(max + 1).padStart(7, '0');
+}
+
+// Выдать стабильные имена колонок реквизитам/измерениям/ресурсам (включая реквизиты ТЧ)
+function assignColumns(model) {
+  let changed = false;
+  const walkLeaf = leaf => {
+    if (!leaf.column) { leaf.column = nextColumnName(model); changed = true; }
+  };
+  for (const classNode of model.children) {
+    if (!TABLE_PREFIX[classNode.classId] || classNode.classId === 'enums') continue;
+    for (const obj of classNode.children) {
+      for (const folder of (obj.children || []).filter(c => c.kind === 'folder')) {
+        if (COLUMN_FOLDERS.has(folder.folderType))
+          (folder.children || []).forEach(walkLeaf);
+        if (folder.folderType === 'Табличные части')
+          for (const vt of folder.children || [])
+            (vt.children || []).forEach(walkLeaf);
+      }
+    }
+  }
+  return changed;
 }
 
 // Выдать стабильные имена таблиц всем, у кого их ещё нет (миграция старых метаданных)
@@ -154,6 +192,7 @@ function leafToJson(leaf) {
     j.Реквизиты = (leaf.children || []).map(leafToJson);
   }
   if (leaf.folderType === 'Формы' && leaf.form) j.Элементы = leaf.form;
+  if (leaf.column) j.Колонка = leaf.column;
   if (leaf.prevNames && leaf.prevNames.length) j.ПрежниеИмена = leaf.prevNames;
   return j;
 }
@@ -181,6 +220,7 @@ function jsonToLeaf(j, folderType) {
     leaf.children = (j.Реквизиты || []).map(r => jsonToLeaf(r, 'Реквизиты'));
   }
   if (folderType === 'Формы' && j.Элементы) leaf.form = j.Элементы;
+  if (j.Колонка) leaf.column = j.Колонка;
   if (j.ПрежниеИмена) leaf.prevNames = j.ПрежниеИмена;
   return leaf;
 }
@@ -306,7 +346,7 @@ class Storage {
       const target = root.children[0].children.find(c => c.classId === def.id);
       loadDir(path.join(this.metadataDir, 'Общие', def.dir), def, target);
     }
-    this.migrated = assignTables(root);
+    this.migrated = assignTables(root) | assignColumns(root);
     return root;
   }
 
@@ -369,7 +409,7 @@ class OnecTreeProvider {
     this.model = storage.isProject ? storage.load() : buildDefaultModel();
     this.fileMode = storage.isProject;
     if (this.fileMode && storage.migrated) storage.save(this.model);
-    if (!this.fileMode) assignTables(this.model);
+    if (!this.fileMode) { assignTables(this.model); assignColumns(this.model); }
     this.index = new Map();
     this.parents = new Map();
     this.reindex();
@@ -531,6 +571,7 @@ async function cmdAdd(provider, treeView, node) {
       const name = await askName('Новый реквизит табличной части', autoName(node, 'Реквизит'));
       if (!name) return;
       const leaf = mkLeaf('Реквизиты', name);
+      leaf.column = nextColumnName(provider.model);
       node.children.push(leaf);
       provider.refresh();
       treeView.reveal(leaf, { select: true });
@@ -541,6 +582,7 @@ async function cmdAdd(provider, treeView, node) {
     if (!name) return;
     const leaf = mkLeaf(folderNode.folderType, name);
     if (folderNode.folderType === 'Табличные части') leaf.table = nextTableName(provider.model, VT_PREFIX);
+    else if (COLUMN_FOLDERS.has(folderNode.folderType)) leaf.column = nextColumnName(provider.model);
     folderNode.children.push(leaf);
     provider.refresh();
     treeView.reveal(leaf, { select: true, focus: true });
