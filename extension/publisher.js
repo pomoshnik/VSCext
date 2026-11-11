@@ -17,6 +17,11 @@ function attrsOf(objNode, folderType) {
   return folderItems(objNode, folderType).map(l => ({ name: l.name, synonym: l.synonym || l.name, type: l.type || 'Строка' }));
 }
 
+function requireTable(o, вид) {
+  if (!o.table) throw new Error('У объекта «' + вид + '.' + o.name + '» не задано имя таблицы. Откройте дерево конфигурации — имена присваиваются автоматически.');
+  return o.table;
+}
+
 function collect(model) {
   const cls = id => model.children.find(c => c.classId === id) || { children: [] };
   const data = {
@@ -26,14 +31,14 @@ function collect(model) {
   };
   const vt = (o, legacyPrefix) => folderItems(o, 'Табличные части').map(t => ({
     name: t.name,
-    table: t.table || `${legacyPrefix}_${o.name}_${t.name}`,
-    legacy: `${legacyPrefix}_${o.name}_${t.name}`,
+    table: requireTable({ name: `${o.name}.${t.name}`, table: t.table }, 'ТабличнаяЧасть'),
+    legacy: `${legacyPrefix}_${o.name}_${t.name}`, // только для миграции баз до v0.5.0
     attrs: (t.children || []).map(l => ({ name: l.name, type: l.type || 'Строка' }))
   }));
   for (const o of cls('catalogs').children) {
     data.catalogs.push({
       name: o.name, synonym: o.synonym || o.name,
-      table: o.table || `Спр_${o.name}`, legacy: `Спр_${o.name}`,
+      table: requireTable(o, 'Справочник'), legacy: `Спр_${o.name}`, // legacy — только для миграции
       attrs: attrsOf(o, 'Реквизиты'),
       tabulars: vt(o, 'Спр')
     });
@@ -41,7 +46,7 @@ function collect(model) {
   for (const o of cls('documents').children) {
     data.documents.push({
       name: o.name, synonym: o.synonym || o.name,
-      table: o.table || `Док_${o.name}`, legacy: `Док_${o.name}`,
+      table: requireTable(o, 'Документ'), legacy: `Док_${o.name}`,
       attrs: attrsOf(o, 'Реквизиты'),
       tabulars: vt(o, 'Док')
     });
@@ -49,16 +54,16 @@ function collect(model) {
   for (const o of cls('enums').children) {
     data.enums.push({
       name: o.name, synonym: o.synonym || o.name,
-      table: o.table || `Переч_${o.name}`, legacy: `Переч_${o.name}`,
+      table: requireTable(o, 'Перечисление'), legacy: `Переч_${o.name}`,
       values: folderItems(o, 'Значения').map(v => ({ name: v.name, synonym: v.synonym || v.name }))
     });
   }
   for (const o of cls('infoRegs').children) {
-    data.infoRegs.push({ name: o.name, table: o.table || `РегСвед_${o.name}`, legacy: `РегСвед_${o.name}`,
+    data.infoRegs.push({ name: o.name, table: requireTable(o, 'РегистрСведений'), legacy: `РегСвед_${o.name}`,
       dims: attrsOf(o, 'Измерения'), ress: attrsOf(o, 'Ресурсы'), attrs: attrsOf(o, 'Реквизиты') });
   }
   for (const o of cls('accumRegs').children) {
-    data.accumRegs.push({ name: o.name, table: o.table || `РегНакоп_${o.name}`, legacy: `РегНакоп_${o.name}`,
+    data.accumRegs.push({ name: o.name, table: requireTable(o, 'РегистрНакопления'), legacy: `РегНакоп_${o.name}`,
       dims: attrsOf(o, 'Измерения'), ress: attrsOf(o, 'Ресурсы') });
   }
   return data;
