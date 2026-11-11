@@ -55,6 +55,40 @@ public class РедакторЗаписи : Window
                 _запись[имя] = v => флажок.IsChecked = v?.ToString() is "1" or "True" or "true";
                 редактор = флажок;
             }
+            else if (тип == "Дата")
+            {
+                // как в 1С: поле даты получает календарь (+ поле времени)
+                var дата = Шаблон.ПолеДаты();
+                var время = Шаблон.ПолеВремени();
+                var панель = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+                панель.Children.Add(дата);
+                панель.Children.Add(время);
+                _чтение[имя] = () =>
+                {
+                    if (дата.SelectedDate is not { } д) return "";
+                    var t = TimeSpan.TryParse(string.IsNullOrWhiteSpace(время.Text) ? "0:0:0" : время.Text, out var ts) ? ts : TimeSpan.Zero;
+                    return д.Date.Add(t).ToString("yyyy-MM-dd HH:mm:ss");
+                };
+                _запись[имя] = v =>
+                {
+                    if (DateTime.TryParse(v?.ToString(), out var д)) { дата.SelectedDate = д.Date; время.Text = д.ToString("HH:mm:ss"); }
+                    else { дата.SelectedDate = null; время.Text = ""; }
+                };
+                редактор = панель;
+            }
+            else if (тип == "Число")
+            {
+                // как в 1С: числовое поле принимает только числа, выравнивание вправо
+                var число = Шаблон.ЧисловоеПоле();
+                _чтение[имя] = () =>
+                {
+                    var т = (число.Text ?? "").Replace(',', '.').Trim();
+                    return decimal.TryParse(т, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out var ч) ? ч : 0m;
+                };
+                _запись[имя] = v => число.Text = string.IsNullOrEmpty(v?.ToString()) ? "" : v!.ToString()!.Replace(',', '.');
+                редактор = число;
+            }
             else if (тип.Contains("Ссылка."))
             {
                 var комбо = Шаблон.ПолеВыбора();
@@ -120,6 +154,18 @@ public class РедакторЗаписи : Window
                         if ((комбо.Items[i] as ComboBoxItem)?.Tag?.ToString() == текущее) { комбо.SelectedIndex = i; break; }
                     строкаТч.Чтение[р.Имя] = () => (комбо.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
                     панель.Children.Add(комбо);
+                }
+                else if (р.Тип == "Число")
+                {
+                    var число = Шаблон.ЧисловаяЯчейка();
+                    число.Text = значение?.ToString()?.Replace(',', '.') ?? "";
+                    строкаТч.Чтение[р.Имя] = () =>
+                    {
+                        var т = (число.Text ?? "").Replace(',', '.').Trim();
+                        return decimal.TryParse(т, System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var ч) ? ч : 0m;
+                    };
+                    панель.Children.Add(число);
                 }
                 else
                 {
@@ -250,6 +296,11 @@ public class РедакторЗаписи : Window
             РеестрМодулей.Найти(объект.ПолноеИмя)?.ПриЗаполнении(заготовка);
             foreach (var (имя, значение) in заготовка.Поля)
                 if (_запись.TryGetValue(имя, out var установить)) установить(значение);
+
+            // как в 1С: у нового документа дата заполняется текущей
+            if (объект.Вид == "Документ" && _чтение.TryGetValue("Дата", out var датаДок)
+                && string.IsNullOrEmpty(датаДок()?.ToString()))
+                _запись["Дата"](DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         }
 
         var отмена = Шаблон.Кнопка("Отмена", () => Close(false));

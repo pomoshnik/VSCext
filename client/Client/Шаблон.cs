@@ -84,6 +84,33 @@ public static class Шаблон
 
     public static TextBox ПолеВвода() => С(new TextBox(), "field");
     public static CheckBox Флажок() => new();
+
+    // --- Поведение полей по типу данных (как в 1С) --------------------------
+    /// <summary>Поле даты с календарём.</summary>
+    public static CalendarDatePicker ПолеДаты() => С(new CalendarDatePicker(), "dateField");
+
+    /// <summary>Поле времени (ЧЧ:ММ:СС) рядом с датой.</summary>
+    public static TextBox ПолеВремени() => С(new TextBox { Width = 80, Watermark = "00:00:00" }, "timeField");
+
+    /// <summary>Числовое поле: выравнивание вправо, принимает только цифры, разделитель и минус.</summary>
+    public static TextBox ЧисловоеПоле() => Числовое(С(new TextBox { TextAlignment = Avalonia.Media.TextAlignment.Right }, "numField"));
+
+    /// <summary>Числовая ячейка табличной части.</summary>
+    public static TextBox ЧисловаяЯчейка() => Числовое(С(new TextBox { TextAlignment = Avalonia.Media.TextAlignment.Right }, "cellEdit"));
+
+    static TextBox Числовое(TextBox поле)
+    {
+        поле.TextChanged += (_, _) =>
+        {
+            var т = поле.Text ?? "";
+            var чист = new string(т.Where(c => char.IsDigit(c) || c is '.' or ',' or '-').ToArray());
+            if (чист == т) return;
+            var курсор = поле.CaretIndex;
+            поле.Text = чист;
+            поле.CaretIndex = Math.Max(0, курсор - (т.Length - чист.Length));
+        };
+        return поле;
+    }
     public static ComboBox ПолеВыбора() => С(new ComboBox(), "field");
 
     // ------------------------------------------------------------------ динамические диалоги

@@ -72,6 +72,13 @@ function html(info, formName, elements) {
   .fld input { flex: 1; border: 1px solid #aab2ba; padding: 3px 6px; background: #fff; color: #333;
                border-radius: 2px; pointer-events: none; min-width: 40px; }
   .fld input.ro { background: #f0f1f3; }
+  .fld input.num { text-align: right; }
+  .fld input.date { flex: none; width: 110px; }
+  .fld input.time { flex: none; width: 70px; margin-left: 4px; }
+  .fld .pickbtn { flex: none; border: 1px solid #aab2ba; border-left: none; background: #eef0f2;
+                  padding: 3px 7px; border-radius: 0 2px 2px 0; color: #555; pointer-events: none; }
+  .fld input.withbtn { border-radius: 2px 0 0 2px; }
+  .fld input[type=checkbox] { flex: none; width: 16px; height: 16px; pointer-events: none; }
   .tbl1c { margin: 8px 0; cursor: pointer; }
   .tbl1c .cap { font-weight: 600; color: #444; margin-bottom: 3px; }
   .tbl1c table { border-collapse: collapse; width: 100%; }
@@ -290,11 +297,36 @@ function html(info, formName, elements) {
           row.className = 'fld' + (e === sel ? ' sel-el' : '');
           const lab = document.createElement('label');
           lab.textContent = elTitle(e) + ':';
-          const inp = document.createElement('input');
-          if (e.ТолькоПросмотр) inp.className = 'ro';
+          row.appendChild(lab);
+          // как в 1С: вид поля определяется типом данных реквизита
           const def = fieldDef(e.Реквизит);
-          inp.value = def && def.тип && def.тип.includes('Ссылка') ? '<выбор из списка>' : '';
-          row.appendChild(lab); row.appendChild(inp);
+          const тип = (def && def.тип) || 'Строка';
+          const ro = e.ТолькоПросмотр ? ' ro' : '';
+          if (тип === 'Булево') {
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            row.appendChild(cb);
+          } else if (тип === 'Дата') {
+            const d = document.createElement('input');
+            d.className = 'date withbtn' + ro;
+            const b = document.createElement('span'); b.className = 'pickbtn'; b.textContent = '📅';
+            const t = document.createElement('input');
+            t.className = 'time' + ro; t.placeholder = '00:00:00';
+            row.appendChild(d); row.appendChild(b); row.appendChild(t);
+          } else if (тип === 'Число') {
+            const n = document.createElement('input');
+            n.className = 'num' + ro; n.value = '0';
+            row.appendChild(n);
+          } else if (тип.includes('Ссылка')) {
+            const inp = document.createElement('input');
+            inp.className = 'withbtn' + ro; inp.value = '<выбор из списка>';
+            const b = document.createElement('span'); b.className = 'pickbtn'; b.textContent = '▾';
+            row.appendChild(inp); row.appendChild(b);
+          } else {
+            const inp = document.createElement('input');
+            if (ro) inp.className = 'ro';
+            row.appendChild(inp);
+          }
           row.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
           dom.appendChild(row);
         } else if (e.Тип === 'Таблица') {
