@@ -8,20 +8,21 @@ namespace Client;
 /// <summary>Главное окно клиента. Разметка — MainWindow.axaml, внешний вид — App.axaml.</summary>
 public partial class MainWindow : Window
 {
-    readonly string _корень;
-    readonly Конфигурация _конфиг;
-    readonly База _база;
+    string _корень = "";
+    Конфигурация _конфиг = new();
+    База _база = null!;
 
-    readonly TreeView _дерево;
-    readonly StackPanel _шапкаТаблицы;
-    readonly ListBox _списокЗаписей;
-    readonly TextBlock _статус;
-    readonly Button _кнДобавить, _кнИзменить, _кнУдалить, _кнОбновить;
+    TreeView _дерево = null!;
+    StackPanel _шапкаТаблицы = null!;
+    ListBox _списокЗаписей = null!;
+    TextBlock _статус = null!;
+    Button _кнДобавить = null!, _кнИзменить = null!, _кнУдалить = null!, _кнОбновить = null!;
 
     ОбъектМетаданных? _текущий;
     List<string> _колонки = new();
 
-    public MainWindow(string кореньПроекта)
+    /// <summary>Конструктор для предпросмотрщика (дизайнера) — без загрузки конфигурации и БД.</summary>
+    public MainWindow()
     {
         AvaloniaXamlLoader.Load(this);
         _дерево = this.FindControl<TreeView>("Дерево")!;
@@ -32,7 +33,11 @@ public partial class MainWindow : Window
         _кнИзменить = this.FindControl<Button>("КнИзменить")!;
         _кнУдалить = this.FindControl<Button>("КнУдалить")!;
         _кнОбновить = this.FindControl<Button>("КнОбновить")!;
+        Title = "1С-мини клиент";
+    }
 
+    public MainWindow(string кореньПроекта) : this()
+    {
         _корень = кореньПроекта;
         _конфиг = ЗагрузчикМетаданных.Загрузить(Path.Combine(_корень, "metadata"));
         var файлБД = Path.Combine(_корень, "data", "app.db");
