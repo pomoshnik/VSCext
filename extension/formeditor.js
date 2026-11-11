@@ -428,8 +428,25 @@ function html(info, formName, elements) {
       if (e.Тип === 'Кнопка') {
         if (STD_ACTIONS.includes(e.Действие))
           addProp('Действие', '<div class="ro">' + e.Действие + '</div>');
-        else
-          addProp('Команда (метод C#)', '<input type="text" id="pAction" value="' + (e.Действие || '').replace(/"/g, '&quot;') + '">');
+        else {
+          // команда кнопки: как у событий — имя метода + переход «→» к коду
+          const p = document.createElement('div');
+          p.className = 'prop';
+          p.innerHTML = '<div class="lbl">Команда (метод C#)</div><div class="val evt">' +
+            '<input type="text" id="pAction" value="' + (e.Действие || '').replace(/"/g, '&quot;') + '" placeholder="имя метода">' +
+            '<button class="gobtn" title="Перейти к обработчику в модуле (создаётся при необходимости)">→</button></div>';
+          p.querySelector('button').addEventListener('click', () => {
+            let имя = (document.getElementById('pAction').value || '').trim();
+            if (!имя) {
+              имя = 'Команда1';
+              document.getElementById('pAction').value = имя;
+              e.Действие = имя;
+              scheduleSave();
+            }
+            vscode.postMessage({ type: 'openHandler', method: имя });
+          });
+          props.appendChild(p);
+        }
       }
       addProp('Заголовок', '<input type="text" id="pTitle" value="' + (e.Заголовок || '').replace(/"/g, '&quot;') + '">');
       if (e.Тип === 'Поле')
