@@ -12,6 +12,10 @@ public class База : IDisposable
     public База(string файл, Конфигурация конфиг)
     {
         _конфиг = конфиг;
+        // каталог может отсутствовать (data/*.db не хранится в git) — создаём,
+        // иначе SQLite падает с «Error 14: unable to open database file»
+        var каталог = Path.GetDirectoryName(Path.GetFullPath(файл));
+        if (!string.IsNullOrEmpty(каталог)) Directory.CreateDirectory(каталог);
         _соединение = new SqliteConnection($"Data Source={файл}");
         _соединение.Open();
     }
