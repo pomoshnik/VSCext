@@ -820,7 +820,39 @@ function objectInfoFor(provider, objNode) {
   };
 }
 
-function cmdOpenForm(provider, treeView, node) {
+// Открыть (при необходимости создать) обработчик события/команды в модуле объекта
+async function openHandlerInModule(provider, storage, objNode, method) {
+  const def = classDefById(objNode.classId);
+  if (!def || !storage.root || !/^[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*$/.test(method)) return;
+  const dir = path.join(storage.root, 'src', 'BusinessLogic', 'Modules');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, objNode.module || `${def.kind1c}.${objNode.name}.cs`);
+  if (!fs.existsSync(file)) fs.writeFileSync(file, moduleTemplate(def.kind1c, objNode.name), 'utf8');
+  if (objNode.module !== path.basename(file)) {
+    objNode.module = path.basename(file);
+    provider.refresh();
+  }
+  let text = fs.readFileSync(file, 'utf8');
+  if (!new RegExp('\\b' + method + '\\s*\\(').test(text)) {
+    const idx = text.lastIndexOf('}');
+    if (idx < 0) return;
+    const snippet = '\n    // Обработчик события/команды формы (клиент вызывает его по имени)\n' +
+      `    public void ${method}(${def.kind1c}${objNode.name}Запись запись)\n` +
+      '    {\n        \n    }\n';
+    text = text.slice(0, idx) + snippet + text.slice(idx);
+    fs.writeFileSync(file, text, 'utf8');
+  }
+  const doc = await vscode.workspace.openTextDocument(file);
+  const editor = await vscode.window.showTextDocument(doc);
+  const offset = doc.getText().indexOf('void ' + method);
+  if (offset >= 0) {
+    const pos = doc.positionAt(offset);
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+  }
+}
+
+function cmdOpenForm(provider, treeView, storage, node) {
   node = node || treeView.selection[0];
   if (!node || node.folderType !== 'Формы') return;
   const folder = provider.parents.get(node.id);
@@ -843,6 +875,10 @@ function cmdOpenForm(provider, treeView, node) {
   formPanels.set(node.id, panel);
   panel.onDidDispose(() => formPanels.delete(node.id));
   panel.webview.onDidReceiveMessage(msg => {
+    if (msg.type === 'openHandler') {
+      openHandlerInModule(provider, storage, objNode, msg.method);
+      return;
+    }
     if (msg.type !== 'save') return;
     node.form = msg.elements;
     provider.refresh();
@@ -1068,7 +1104,7 @@ function activate(context) {
     vscode.commands.registerCommand('onecTree.publish', () => cmdPublish(provider, storage, context)),
     vscode.commands.registerCommand('onecTree.publishDotnet', () => cmdPublishDotnet(storage)),
     vscode.commands.registerCommand('onecTree.debug', () => cmdDebug(storage)),
-    vscode.commands.registerCommand('onecTree.openForm', n => cmdOpenForm(provider, treeView, n)),
+    vscode.commands.registerCommand('onecTree.openForm', n => cmdOpenForm(provider, treeView, storage, n)),
     vscode.commands.registerCommand('onecTree.init', () => cmdInit(provider, storage)),
     vscode.commands.registerCommand('onecTree.setType', async n => {
       n = n || treeView.selection[0];

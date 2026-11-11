@@ -114,6 +114,13 @@ function html(info, formName, elements) {
   .prop input[type=text]:focus, .prop select:focus { outline: none; border-color: var(--vscode-focusBorder); }
   .prop .ro { padding: 4px 6px; color: var(--vscode-descriptionForeground); }
   .empty { padding: 12px; color: var(--vscode-descriptionForeground); }
+  .val.evt { display: flex; gap: 2px; }
+  .val.evt input { flex: 1; min-width: 0; }
+  .gobtn { background: var(--vscode-button-secondaryBackground, #ddd); color: var(--vscode-button-secondaryForeground, #222);
+           border: 1px solid var(--vscode-panel-border); cursor: pointer; padding: 0 8px; flex: none; }
+  .gobtn:hover { background: var(--vscode-button-secondaryHoverBackground, #ccc); }
+  .sect { padding: 5px 8px; font-weight: 600; background: var(--vscode-sideBarSectionHeader-background);
+          border-bottom: 1px solid var(--vscode-panel-border); margin-top: 8px; }
   .hint { padding: 6px 8px; color: var(--vscode-descriptionForeground); font-size: 11px; }
 </style></head>
 <body>
@@ -144,6 +151,8 @@ function html(info, formName, elements) {
   const ICONS = { 'Поле': '▭', 'Таблица': '▦', 'Кнопка': '🔘', 'Группа': '▣', 'Страницы': '🗂', 'Страница': '📄', 'Декорация': '𝐓' };
   const STD_ACTIONS = ['ЗаписатьИЗакрыть', 'Отмена'];
   const CONTAINERS = ['Группа', 'Страницы', 'Страница'];
+  // события по типам элементов (обработчик — публичный метод модуля объекта на C#)
+  const EVENTS = { 'Поле': ['ПриИзменении', 'ПриВходе', 'ПриВыходе'], 'Таблица': ['ПриИзменении'] };
   const isCont = e => CONTAINERS.includes(e.Тип);
   const kids = e => (e.Элементы || (e.Элементы = []));
 
@@ -439,6 +448,40 @@ function html(info, formName, elements) {
       if (pGrp) pGrp.addEventListener('change', () => { e.Группировка = pGrp.value; scheduleSave(); render(); });
       const pAction = document.getElementById('pAction');
       if (pAction) pAction.addEventListener('input', () => { e.Действие = pAction.value; scheduleSave(); });
+
+      // --- события элемента: имя метода C# + переход к коду ---
+      const список = EVENTS[e.Тип];
+      if (список) {
+        const h = document.createElement('div');
+        h.className = 'sect'; h.textContent = 'События';
+        props.appendChild(h);
+        for (const соб of список) {
+          const p = document.createElement('div');
+          p.className = 'prop';
+          const val = ((e.События || {})[соб] || '').replace(/"/g, '&quot;');
+          p.innerHTML = '<div class="lbl">' + соб + '</div><div class="val evt">' +
+            '<input type="text" value="' + val + '" placeholder="имя метода">' +
+            '<button class="gobtn" title="Перейти к обработчику в модуле (создаётся при необходимости)">→</button></div>';
+          const inp = p.querySelector('input'), btn = p.querySelector('button');
+          inp.addEventListener('input', () => {
+            e.События = e.События || {};
+            if (inp.value.trim()) e.События[соб] = inp.value.trim();
+            else delete e.События[соб];
+            scheduleSave();
+          });
+          btn.addEventListener('click', () => {
+            let имя = inp.value.trim();
+            if (!имя) {   // как в 1С: имя обработчика по умолчанию — <Элемент><Событие>
+              имя = (e.Реквизит || e.ТабличнаяЧасть || 'Элемент') + соб;
+              inp.value = имя;
+              (e.События = e.События || {})[соб] = имя;
+              scheduleSave();
+            }
+            vscode.postMessage({ type: 'openHandler', method: имя });
+          });
+          props.appendChild(p);
+        }
+      }
     }
 
     // --- выпадающий список добавления ---
