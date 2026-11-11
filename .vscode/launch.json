@@ -2,6 +2,15 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Расширение: конфигуратор 1С (F5)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "${workspaceFolder}",
+        "--extensionDevelopmentPath=${workspaceFolder}/extension"
+      ]
+    },
+    {
       "name": "Клиент 1С-мини (отладка)",
       "type": "coreclr",
       "request": "launch",
