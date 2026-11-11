@@ -34,7 +34,7 @@
     {
       "label": "git: получить обновления",
       "type": "shell",
-      "command": "git pull --rebase --autostash",
+      "command": "git checkout -- src/BusinessLogic/Generated/ ; git pull --rebase --autostash",
       "problemMatcher": []
     }
   ],
