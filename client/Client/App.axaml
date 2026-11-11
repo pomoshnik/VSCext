@@ -15,7 +15,7 @@
 
     <!-- Окна -->
     <Style Selector="Window">
-      <Setter Property="Background" Value="#866D35" />
+      <Setter Property="Background" Value="#FFE7B4" />
     </Style>
 
     <!-- Кнопки -->
