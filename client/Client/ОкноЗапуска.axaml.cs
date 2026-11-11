@@ -114,9 +114,12 @@ public partial class ОкноЗапуска : Window
     {
         var б = Текущая();
         if (б == null) return;
-        if (!Directory.Exists(Path.Combine(б.Путь, "metadata")))
+        var естьМетаданные = Directory.Exists(Path.Combine(б.Путь, "metadata"));
+        var естьБаза = File.Exists(Path.Combine(б.Путь, "data", "app.db"));
+        if (!естьМетаданные && !естьБаза)
         {
-            await Шаблон.Сообщение(this, "Не найден каталог metadata по пути:\n" + б.Путь);
+            await Шаблон.Сообщение(this,
+                "По указанному пути нет ни каталога metadata, ни файла data/app.db:\n" + б.Путь);
             return;
         }
         var окно = new MainWindow(б.Путь);

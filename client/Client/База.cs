@@ -20,6 +20,22 @@ public class База : IDisposable
         _соединение.Open();
     }
 
+    /// <summary>Снимок метаданных из опубликованной базы (или null, если база не публиковалась).</summary>
+    public static string? СнимокМетаданных(string файлБД)
+    {
+        if (!File.Exists(файлБД)) return null;
+        try
+        {
+            using var соединение = new SqliteConnection($"Data Source={файлБД};Mode=ReadOnly");
+            соединение.Open();
+            using var к = соединение.CreateCommand();
+            к.CommandText = "SELECT Метаданные FROM _Конфигурация LIMIT 1";
+            var результат = к.ExecuteScalar();
+            return результат is string json && json.Length > 0 ? json : null;
+        }
+        catch { return null; } // нет таблицы/колонки — база старой публикации
+    }
+
     /// <summary>Стабильное имя таблицы из метаданных (cat_/doc_/enm_/inf_/acc_/vt_).</summary>
     public static string ИмяТаблицы(ОбъектМетаданных о) =>
         о.Таблица ?? throw new InvalidOperationException(

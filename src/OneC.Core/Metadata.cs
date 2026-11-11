@@ -77,6 +77,16 @@ public class Конфигурация
         Объекты.FirstOrDefault(o => o.ПолноеИмя == полноеИмя);
 }
 
+/// <summary>Полный снимок конфигурации для хранения в базе данных (таблица _Конфигурация).</summary>
+public class СнимокКонфигурации
+{
+    public string Имя { get; set; } = "";
+    public string Синоним { get; set; } = "";
+    public string Версия { get; set; } = "";
+    public string Комментарий { get; set; } = "";
+    public List<ОбъектМетаданных> Объекты { get; set; } = new();
+}
+
 public static class ЗагрузчикМетаданных
 {
     static readonly JsonSerializerOptions Опции = new()
@@ -118,6 +128,36 @@ public static class ЗагрузчикМетаданных
                 Console.Error.WriteLine($"Ошибка чтения {файл}: {ex.Message}");
             }
         }
+        return конфиг;
+    }
+
+    /// <summary>Сериализует конфигурацию в снимок для записи в базу при публикации.</summary>
+    public static string ВСнимок(Конфигурация конфиг)
+    {
+        var снимок = new СнимокКонфигурации
+        {
+            Имя = конфиг.Имя, Синоним = конфиг.Синоним,
+            Версия = конфиг.Версия, Комментарий = конфиг.Комментарий,
+            Объекты = конфиг.Объекты.ToList()
+        };
+        return JsonSerializer.Serialize(снимок, new JsonSerializerOptions
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        });
+    }
+
+    /// <summary>Загружает конфигурацию из снимка, сохранённого в базе данных.</summary>
+    public static Конфигурация ИзСнимка(string json)
+    {
+        var снимок = JsonSerializer.Deserialize<СнимокКонфигурации>(json, Опции)
+            ?? throw new InvalidOperationException("Снимок конфигурации в базе повреждён.");
+        var конфиг = new Конфигурация
+        {
+            Имя = снимок.Имя, Синоним = снимок.Синоним,
+            Версия = снимок.Версия, Комментарий = снимок.Комментарий
+        };
+        конфиг.Объекты.AddRange(снимок.Объекты);
         return конфиг;
     }
 }
