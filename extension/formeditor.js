@@ -85,6 +85,10 @@ function html(info, formName, elements) {
   .tbl1c th { background: #eef0f2; border: 1px solid #c5cad0; padding: 3px 6px; text-align: left; font-weight: 600; color: #444; }
   .tbl1c td { border: 1px solid #d8dce0; padding: 3px 6px; height: 14px; }
 
+  /* Декорация */
+  .deco1c { color: #666; margin: 6px 0 2px; cursor: pointer; }
+  .deco1c.sel-el { outline: 2px solid #ff8c00; outline-offset: 1px; }
+
   /* Группы */
   .grp1c { margin: 4px 0; padding: 2px; border: 1px dashed transparent; cursor: pointer; }
   .grp1c:hover { border-color: #c5cad0; }
@@ -137,7 +141,8 @@ function html(info, formName, elements) {
   let saveTimer = null;
   const activePages = new Map();    // элемент «Страницы» -> активная вкладка (индекс)
 
-  const ICONS = { 'Поле': '▭', 'Таблица': '▦', 'Кнопка': '🔘', 'Группа': '▣', 'Страницы': '🗂', 'Страница': '📄' };
+  const ICONS = { 'Поле': '▭', 'Таблица': '▦', 'Кнопка': '🔘', 'Группа': '▣', 'Страницы': '🗂', 'Страница': '📄', 'Декорация': '𝐓' };
+  const STD_ACTIONS = ['ЗаписатьИЗакрыть', 'Отмена'];
   const CONTAINERS = ['Группа', 'Страницы', 'Страница'];
   const isCont = e => CONTAINERS.includes(e.Тип);
   const kids = e => (e.Элементы || (e.Элементы = []));
@@ -150,6 +155,7 @@ function html(info, formName, elements) {
     if (e.Тип === 'Поле') return e.Заголовок || e.Реквизит;
     if (e.Тип === 'Таблица') return e.Заголовок || e.ТабличнаяЧасть;
     if (e.Тип === 'Кнопка') return e.Заголовок || e.Действие;
+    if (e.Тип === 'Декорация') return e.Заголовок || 'Надпись';
     return e.Заголовок || e.Тип;
   }
 
@@ -341,6 +347,12 @@ function html(info, formName, elements) {
           wrap.innerHTML = '<div class="cap">' + elTitle(e) + '</div><table><tr>' + ths + '</tr>' + rows + '</table>';
           wrap.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
           dom.appendChild(wrap);
+        } else if (e.Тип === 'Декорация') {
+          const d = document.createElement('div');
+          d.className = 'deco1c' + (e === sel ? ' sel-el' : '');
+          d.textContent = e.Заголовок || 'Надпись';
+          d.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          dom.appendChild(d);
         } else if (e.Тип === 'Группа') {
           const g = document.createElement('div');
           g.className = 'grp1c' + (e === sel ? ' sel-el' : '');
@@ -404,7 +416,12 @@ function html(info, formName, elements) {
       addProp('Тип', '<div class="ro">' + e.Тип + '</div>');
       if (e.Тип === 'Поле') addProp('Реквизит', '<div class="ro">' + e.Реквизит + '</div>');
       if (e.Тип === 'Таблица') addProp('Табличная часть', '<div class="ro">' + e.ТабличнаяЧасть + '</div>');
-      if (e.Тип === 'Кнопка') addProp('Действие', '<div class="ro">' + e.Действие + '</div>');
+      if (e.Тип === 'Кнопка') {
+        if (STD_ACTIONS.includes(e.Действие))
+          addProp('Действие', '<div class="ro">' + e.Действие + '</div>');
+        else
+          addProp('Команда (метод C#)', '<input type="text" id="pAction" value="' + (e.Действие || '').replace(/"/g, '&quot;') + '">');
+      }
       addProp('Заголовок', '<input type="text" id="pTitle" value="' + (e.Заголовок || '').replace(/"/g, '&quot;') + '">');
       if (e.Тип === 'Поле')
         addProp('Только просмотр', '<input type="checkbox" id="pRO"' + (e.ТолькоПросмотр ? ' checked' : '') + '>');
@@ -420,6 +437,8 @@ function html(info, formName, elements) {
       if (pRO) pRO.addEventListener('change', () => { e.ТолькоПросмотр = pRO.checked; scheduleSave(); render(); });
       const pGrp = document.getElementById('pGrp');
       if (pGrp) pGrp.addEventListener('change', () => { e.Группировка = pGrp.value; scheduleSave(); render(); });
+      const pAction = document.getElementById('pAction');
+      if (pAction) pAction.addEventListener('input', () => { e.Действие = pAction.value; scheduleSave(); });
     }
 
     // --- выпадающий список добавления ---
@@ -445,9 +464,13 @@ function html(info, formName, elements) {
     const og3 = document.createElement('optgroup'); og3.label = 'Кнопки';
     og3.appendChild(new Option('Записать и закрыть', 'b:ЗаписатьИЗакрыть'));
     og3.appendChild(new Option('Отмена', 'b:Отмена'));
+    og3.appendChild(new Option('Команда модуля (C#)', 'b:КомандаМодуля'));
+    const og4 = document.createElement('optgroup'); og4.label = 'Декорации';
+    og4.appendChild(new Option('Надпись', 'd:Надпись'));
     if (og1.children.length) addSel.appendChild(og1);
     if (og2.children.length) addSel.appendChild(og2);
     addSel.appendChild(og3);
+    addSel.appendChild(og4);
     if ([...addSel.options].some(o => o.value === prev)) addSel.value = prev;
   }
 
@@ -476,6 +499,9 @@ function html(info, formName, elements) {
     const caps = pv.querySelectorAll('.tbl1c .cap');
     const vt = visible.filter(e => e.Тип === 'Таблица');
     caps.forEach((c, i) => { if (vt[i]) c.textContent = elTitle(vt[i]); });
+    const decos = pv.querySelectorAll('.deco1c');
+    const vd = visible.filter(e => e.Тип === 'Декорация');
+    decos.forEach((d, i) => { if (vd[i]) d.textContent = vd[i].Заголовок || 'Надпись'; });
     const gcaps = pv.querySelectorAll('.grp1c > .gcap');
     const vg = visible.filter(e => e.Тип === 'Группа' && e.Заголовок);
     gcaps.forEach((c, i) => { if (vg[i]) c.textContent = vg[i].Заголовок; });
@@ -511,7 +537,12 @@ function html(info, formName, elements) {
       const d = tabularDef(name);
       нов = { Тип: 'Таблица', ТабличнаяЧасть: name, Заголовок: d ? d.синоним : name };
     } else if (k === 'b') {
-      нов = { Тип: 'Кнопка', Действие: name, Заголовок: name === 'ЗаписатьИЗакрыть' ? 'Записать и закрыть' : 'Отмена' };
+      if (name === 'КомандаМодуля')
+        нов = { Тип: 'Кнопка', Действие: 'МояКоманда', Заголовок: 'Моя команда' };
+      else
+        нов = { Тип: 'Кнопка', Действие: name, Заголовок: name === 'ЗаписатьИЗакрыть' ? 'Записать и закрыть' : 'Отмена' };
+    } else if (k === 'd') {
+      нов = { Тип: 'Декорация', Заголовок: 'Надпись' };
     } else { // g: контейнеры
       if (name === 'Группа') нов = { Тип: 'Группа', Заголовок: '', Группировка: 'Вертикальная', Элементы: [] };
       else if (name === 'Страницы') нов = { Тип: 'Страницы', Элементы: [

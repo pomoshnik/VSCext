@@ -88,6 +88,36 @@ public class Отказ
 /// <summary>Базовый класс модуля объекта — переопределите нужные обработчики.</summary>
 public abstract class МодульОбъекта
 {
+    /// <summary>
+    /// Команда формы: как в 1С, кнопка ссылается на команду, а команда — на обработчик.
+    /// Обработчик — публичный метод модуля с именем команды и параметром-записью
+    /// (типизированной, например ДокументПоступлениеТоваровЗапись, или ЗаписьОбъекта) либо без параметров.
+    /// Возвращает false, если метод не найден.
+    /// </summary>
+    public bool ВыполнитьКоманду(string имя, ЗаписьОбъекта запись)
+    {
+        var метод = GetType().GetMethod(имя,
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        if (метод == null || метод.DeclaringType == typeof(МодульОбъекта)) return false;
+
+        var параметры = метод.GetParameters();
+        object?[] аргументы;
+        if (параметры.Length == 0)
+            аргументы = Array.Empty<object?>();
+        else if (параметры.Length == 1 && параметры[0].ParameterType.IsInstanceOfType(запись))
+            аргументы = new object?[] { запись };
+        else if (параметры.Length == 1 &&
+                 параметры[0].ParameterType.GetConstructor(new[] { typeof(ЗаписьОбъекта) }) is { } ктор)
+            аргументы = new object?[] { ктор.Invoke(new object[] { запись }) };
+        else
+            return false;
+
+        try { метод.Invoke(this, аргументы); }
+        catch (System.Reflection.TargetInvocationException e) when (e.InnerException != null)
+        { throw e.InnerException; }
+        return true;
+    }
+
     /// <summary>Вызывается перед записью. Установите Отказ, чтобы прервать запись.</summary>
     public virtual void ПередЗаписью(ЗаписьОбъекта запись, Отказ отказ) { }
 

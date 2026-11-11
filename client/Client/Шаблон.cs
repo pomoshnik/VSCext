@@ -85,6 +85,15 @@ public static class Шаблон
     public static TextBox ПолеВвода() => С(new TextBox(), "field");
     public static CheckBox Флажок() => new();
 
+    /// <summary>Декорация-надпись на форме (оформление — класс decoration в App.axaml).</summary>
+    public static TextBlock Декорация(string текст) => С(new TextBlock
+    {
+        Text = текст,
+        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+        Foreground = Avalonia.Media.Brushes.DimGray,
+        Margin = new Thickness(0, 6, 0, 2)
+    }, "decoration");
+
     // --- Поведение полей по типу данных (как в 1С) --------------------------
     /// <summary>Поле даты с календарём.</summary>
     public static CalendarDatePicker ПолеДаты() => С(new CalendarDatePicker(), "dateField");
