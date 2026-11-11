@@ -7,6 +7,9 @@ namespace Client;
 /// Разметка — ДиалогБазы.axaml, внешний вид — App.axaml.</summary>
 public partial class ДиалогБазы : Window
 {
+    /// <summary>Конструктор для предпросмотрщика (дизайнера).</summary>
+    public ДиалогБазы() : this(new ИнформационнаяБаза()) { }
+
     public ДиалогБазы(ИнформационнаяБаза база)
     {
         AvaloniaXamlLoader.Load(this);

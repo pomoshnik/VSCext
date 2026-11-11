@@ -7,7 +7,7 @@
 
   <DockPanel>
     <TextBlock DockPanel.Dock="Top" Classes="sectionHeader" Text="Информационные базы" />
-    <TextBlock x:Name="ПутьВнизу" DockPanel.Dock="Bottom" Classes="status" />
+    <TextBlock x:Name="ПутьВнизу" DockPanel.Dock="Bottom" Classes="status" Margin="12,8,0,8" />
 
     <!-- столбец кнопок, как в окне «Запуск 1С:Предприятия» -->
     <DockPanel DockPanel.Dock="Right" Width="150" Margin="10,0,10,0">
@@ -25,7 +25,7 @@
     <!-- список информационных баз -->
     <Border Classes="pane" BorderThickness="2" Margin="12,0,0,0">
       <ScrollViewer>
-        <ListBox x:Name="Список" Background="White">
+        <ListBox x:Name="Список" Background="#FFF7D1">
           <ListBox.ItemTemplate>
             <DataTemplate>
               <StackPanel Classes="baseItem">
