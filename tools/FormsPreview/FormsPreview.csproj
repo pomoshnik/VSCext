@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Хост предпросмотра произвольных форм конфигурации.
+    Превьюеру Avalonia (VS Code / Visual Studio) нужен ИСПОЛНЯЕМЫЙ проект,
+    ссылающийся на проект с AXAML-файлами. Клиент на BusinessLogic не ссылается
+    (конфигурация загружается из базы), поэтому превью форм работает через этот проект.
+    В работе платформы он не участвует.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.23" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BusinessLogic\BusinessLogic.csproj" />
+  </ItemGroup>
+</Project>
