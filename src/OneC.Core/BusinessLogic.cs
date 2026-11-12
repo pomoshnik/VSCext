@@ -197,41 +197,67 @@ public class Запрос
     }
 }
 
+/// <summary>Отмечает окно произвольной формы объекта в сборке конфигурации.</summary>
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class ПроизвольнаяФормаAttribute : Attribute
+{
+    public string ПолноеИмяОбъекта { get; }
+    public ПроизвольнаяФормаAttribute(string полноеИмяОбъекта) => ПолноеИмяОбъекта = полноеИмяОбъекта;
+}
+
+/// <summary>Контекст, который платформа передаёт произвольной форме при открытии.</summary>
+public class КонтекстФормы
+{
+    public required Конфигурация Конфигурация { get; init; }
+    public required ОбъектМетаданных Объект { get; init; }
+
+    /// <summary>Данные: загруженная запись либо новая (после ПриЗаполнении).</summary>
+    public required ЗаписьОбъекта Запись { get; init; }
+
+    /// <summary>Записать через конвейер платформы (ПередЗаписью, проведение, движения). Аргументы: запись, провести.</summary>
+    public required Func<ЗаписьОбъекта, bool, Отказ> Записать { get; init; }
+}
+
+/// <summary>Реализуется окном произвольной формы (AXAML в конфигурации).</summary>
+public interface IПроизвольнаяФорма
+{
+    void Инициализировать(КонтекстФормы контекст);
+}
+
 /// <summary>Реестр модулей бизнес-логики: ищет классы с атрибутом [МодульОбъекта] по сборкам.</summary>
 public static class РеестрМодулей
 {
     static Dictionary<string, МодульОбъекта>? _кэш;
+    static readonly Dictionary<string, Type> _формы = new();
 
     public static void Инициализировать(params Assembly[] сборки)
     {
         _кэш = new Dictionary<string, МодульОбъекта>();
         var список = сборки.Length > 0 ? сборки : AppDomain.CurrentDomain.GetAssemblies();
-        foreach (var сборка in список)
-        {
-            Type[] типы;
-            try { типы = сборка.GetTypes(); } catch { continue; }
-            foreach (var тип in типы)
-            {
-                var атрибут = тип.GetCustomAttribute<МодульОбъектаAttribute>();
-                if (атрибут == null || !typeof(МодульОбъекта).IsAssignableFrom(тип)) continue;
-                if (Activator.CreateInstance(тип) is МодульОбъекта модуль)
-                    _кэш[атрибут.ПолноеИмя] = модуль;
-            }
-        }
+        foreach (var сборка in список) Сканировать(сборка);
     }
 
     /// <summary>Подключить сборку конфигурации (например, загруженную из базы данных).</summary>
     public static void Подключить(Assembly сборка)
     {
         _кэш ??= new Dictionary<string, МодульОбъекта>();
+        Сканировать(сборка);
+    }
+
+    static void Сканировать(Assembly сборка)
+    {
         Type[] типы;
         try { типы = сборка.GetTypes(); } catch { return; }
         foreach (var тип in типы)
         {
             var атрибут = тип.GetCustomAttribute<МодульОбъектаAttribute>();
-            if (атрибут == null || !typeof(МодульОбъекта).IsAssignableFrom(тип)) continue;
-            if (Activator.CreateInstance(тип) is МодульОбъекта модуль)
-                _кэш[атрибут.ПолноеИмя] = модуль;
+            if (атрибут != null && typeof(МодульОбъекта).IsAssignableFrom(тип)
+                && Activator.CreateInstance(тип) is МодульОбъекта модуль)
+                _кэш![атрибут.ПолноеИмя] = модуль;
+
+            var формa = тип.GetCustomAttribute<ПроизвольнаяФормаAttribute>();
+            if (формa != null && typeof(IПроизвольнаяФорма).IsAssignableFrom(тип))
+                _формы[формa.ПолноеИмяОбъекта] = тип;
         }
     }
 
@@ -240,4 +266,8 @@ public static class РеестрМодулей
         if (_кэш == null) Инициализировать();
         return _кэш!.TryGetValue(полноеИмя, out var м) ? м : null;
     }
+
+    /// <summary>Тип окна произвольной формы объекта или null, если у объекта обычная (генерируемая) форма.</summary>
+    public static Type? НайтиФорму(string полноеИмяОбъекта) =>
+        _формы.TryGetValue(полноеИмяОбъекта, out var т) ? т : null;
 }

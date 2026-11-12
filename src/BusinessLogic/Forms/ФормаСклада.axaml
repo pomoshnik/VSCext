@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="250"
+        x:Class="BusinessLogic.Forms.ФормаСклада"
+        Width="440" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="Склад" Background="#FFE7B4">
+  <StackPanel Margin="16" Spacing="10">
+    <TextBlock Text="Произвольная форма из конфигурации (AXAML)"
+               FontSize="12" Foreground="#8A6D3B"/>
+
+    <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,10,Auto">
+      <TextBlock Text="Код:" VerticalAlignment="Center"/>
+      <TextBox x:Name="Код" Grid.Column="1" Watermark="автоматически"/>
+      <TextBlock Text="Наименование:" Grid.Row="2" VerticalAlignment="Center"/>
+      <TextBox x:Name="Наименование" Grid.Row="2" Grid.Column="1"/>
+    </Grid>
+
+    <TextBlock x:Name="Ошибки" Foreground="#B00020" TextWrapping="Wrap" IsVisible="False"/>
+
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button x:Name="КнопкаЗаписать" Content="Записать и закрыть"/>
+      <Button x:Name="КнопкаОтмена" Content="Отмена"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

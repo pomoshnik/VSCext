@@ -8,4 +8,10 @@
   <ItemGroup>
     <ProjectReference Include="..\OneC.Core\OneC.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- AXAML-формы конфигурации компилируются в эту же DLL; Desktop и Fluent нужны превьюеру -->
+    <PackageReference Include="Avalonia" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.23" />
+  </ItemGroup>
 </Project>
