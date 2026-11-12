@@ -286,10 +286,7 @@ async function publish(model, rootPath, extensionDir) {
   db.run('INSERT INTO _Конфигурация (Имя, Версия, ДатаПубликации, Метаданные) VALUES(?, ?, ?, ?)',
     [data.config.name, data.config.version, now, снимок]);
 
-  fs.writeFileSync(dbPath, Buffer.from(db.export()));
-  db.close();
-
-  // Генерация типизированного C#-кода
+  // Генерация типизированного C#-кода (до компиляции конфигурации)
   let genFile = null;
   const logicDir = path.join(rootPath, 'src', 'BusinessLogic');
   if (fs.existsSync(logicDir)) {
@@ -297,6 +294,39 @@ async function publish(model, rootPath, extensionDir) {
     fs.mkdirSync(path.dirname(genFile), { recursive: true });
     fs.writeFileSync(genFile, generateCode(data), 'utf8');
   }
+
+  // Компиляция конфигурации в DLL и сохранение в базе (_Сборки):
+  // клиент загружает модули C# из базы, пересборка клиента не нужна
+  if (genFile) {
+    await new Promise((resolve, reject) => {
+      require('child_process').execFile(
+        'dotnet', ['build', logicDir, '-c', 'Release', '--nologo', '-v', 'q'],
+        { cwd: rootPath, timeout: 300000, maxBuffer: 16 * 1024 * 1024 },
+        (err, stdout, stderr) => err
+          ? reject(new Error('Сборка конфигурации (dotnet build src/BusinessLogic) не удалась:\n' +
+              String(stdout || '') + String(stderr || err.message)))
+          : resolve());
+    });
+    const найтиDll = dir => {
+      for (const имя of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+        const p = path.join(dir, имя);
+        if (fs.statSync(p).isDirectory()) { const r = найтиDll(p); if (r) return r; }
+        else if (имя === 'BusinessLogic.dll') return p;
+      }
+      return null;
+    };
+    const dllPath = найтиDll(path.join(logicDir, 'bin', 'Release'));
+    if (!dllPath) { db.close(); throw new Error('BusinessLogic.dll не найдена после сборки.'); }
+    db.run('CREATE TABLE IF NOT EXISTS "_Сборки" ("Имя" TEXT PRIMARY KEY, "Данные" BLOB)');
+    db.run('DELETE FROM "_Сборки"');
+    db.run('INSERT INTO "_Сборки" ("Имя", "Данные") VALUES(?, ?)', ['BusinessLogic.dll', fs.readFileSync(dllPath)]);
+    const pdbPath = dllPath.replace(/\.dll$/, '.pdb');
+    if (fs.existsSync(pdbPath))
+      db.run('INSERT INTO "_Сборки" ("Имя", "Данные") VALUES(?, ?)', ['BusinessLogic.pdb', fs.readFileSync(pdbPath)]);
+  }
+
+  fs.writeFileSync(dbPath, Buffer.from(db.export()));
+  db.close();
 
   return { dbPath, created, updated, log, genFile };
 }

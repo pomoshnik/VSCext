@@ -220,6 +220,21 @@ public static class РеестрМодулей
         }
     }
 
+    /// <summary>Подключить сборку конфигурации (например, загруженную из базы данных).</summary>
+    public static void Подключить(Assembly сборка)
+    {
+        _кэш ??= new Dictionary<string, МодульОбъекта>();
+        Type[] типы;
+        try { типы = сборка.GetTypes(); } catch { return; }
+        foreach (var тип in типы)
+        {
+            var атрибут = тип.GetCustomAttribute<МодульОбъектаAttribute>();
+            if (атрибут == null || !typeof(МодульОбъекта).IsAssignableFrom(тип)) continue;
+            if (Activator.CreateInstance(тип) is МодульОбъекта модуль)
+                _кэш[атрибут.ПолноеИмя] = модуль;
+        }
+    }
+
     public static МодульОбъекта? Найти(string полноеИмя)
     {
         if (_кэш == null) Инициализировать();

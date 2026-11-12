@@ -324,6 +324,44 @@ if (Directory.Exists(каталогЛогики))
     Directory.CreateDirectory(Path.GetDirectoryName(файлКода)!);
     File.WriteAllText(файлКода, ГенераторКода.Сгенерировать(конфиг));
     Console.WriteLine($"Код метаданных: {файлКода}");
+
+    // -----------------------------------------------------------------------
+    // Компиляция конфигурации в DLL и сохранение в базе:
+    // клиент загружает модули C# из таблицы _Сборки, пересборка клиента не нужна
+    // -----------------------------------------------------------------------
+    Console.WriteLine("Сборка конфигурации (dotnet build src/BusinessLogic)...");
+    var процесс = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+        "dotnet", $"build \"{каталогЛогики}\" -c Release --nologo -v q")
+    { RedirectStandardOutput = true, RedirectStandardError = true })!;
+    var вывод = процесс.StandardOutput.ReadToEnd() + процесс.StandardError.ReadToEnd();
+    процесс.WaitForExit();
+    if (процесс.ExitCode != 0)
+    {
+        Console.WriteLine(вывод);
+        Console.WriteLine("ОШИБКА: конфигурация не скомпилировалась — публикация прервана, DLL не записана.");
+        Environment.Exit(1);
+    }
+
+    var dll = Directory.GetFiles(Path.Combine(каталогЛогики, "bin", "Release"), "BusinessLogic.dll", SearchOption.AllDirectories)
+        .OrderByDescending(File.GetLastWriteTimeUtc).First();
+    var pdb = Path.ChangeExtension(dll, ".pdb");
+
+    Таблица("_Сборки", new() { ("Имя", "TEXT PRIMARY KEY"), ("Данные", "BLOB") });
+    Выполнить("DELETE FROM _Сборки");
+    using (var команда = соединение.CreateCommand())
+    {
+        команда.CommandText = "INSERT INTO _Сборки (Имя, Данные) VALUES(@и, @д)";
+        команда.Parameters.AddWithValue("@и", "BusinessLogic.dll");
+        команда.Parameters.AddWithValue("@д", File.ReadAllBytes(dll));
+        команда.ExecuteNonQuery();
+        if (File.Exists(pdb))
+        {
+            команда.Parameters["@и"].Value = "BusinessLogic.pdb";
+            команда.Parameters["@д"].Value = File.ReadAllBytes(pdb);
+            команда.ExecuteNonQuery();
+        }
+    }
+    Console.WriteLine($"Конфигурация скомпилирована и сохранена в базе ({new FileInfo(dll).Length / 1024} КБ).");
 }
 
 static class ГенераторКода

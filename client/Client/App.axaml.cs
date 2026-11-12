@@ -11,8 +11,7 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
-        // Регистрируем модули бизнес-логики из сборки BusinessLogic
-        РеестрМодулей.Инициализировать(typeof(BusinessLogic.Modules.Справочник_Номенклатура).Assembly);
+        // Модули бизнес-логики загружаются из базы (таблица _Сборки) при её открытии — см. База.cs
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

@@ -57,6 +57,9 @@ public class База : IDisposable, IИсточникЗапросов
 
         // SQLite LIKE не знает кириллицу — своя функция для регистронезависимого «Подобно»
         _соединение.CreateFunction("внижнем", (string? т) => т?.ToLowerInvariant());
+
+        // Конфигурация (модули C#) компилируется при публикации и хранится в самой базе
+        ЗагрузитьКонфигурацию(файл);
     }
 
     /// <summary>Снимок метаданных из опубликованной базы (или null, если база не публиковалась).</summary>
@@ -212,6 +215,47 @@ public class База : IDisposable, IИсточникЗапросов
         using var к = _соединение.CreateCommand();
         к.CommandText = $"SELECT COUNT(*) FROM \"{таблица}\"";
         return Convert.ToInt64(к.ExecuteScalar());
+    }
+
+    // --- Скомпилированная конфигурация из базы (_Сборки) --------------------
+
+    static readonly HashSet<string> _загруженныеСборки = new();
+
+    void ЗагрузитьКонфигурацию(string файл)
+    {
+        byte[]? dll = null, pdb = null;
+        try
+        {
+            using var команда = _соединение.CreateCommand();
+            команда.CommandText = "SELECT Имя, Данные FROM _Сборки";
+            using var чтение = команда.ExecuteReader();
+            while (чтение.Read())
+            {
+                var имя = чтение.GetString(0);
+                if (имя == "BusinessLogic.dll") dll = (byte[])чтение[1];
+                else if (имя == "BusinessLogic.pdb") pdb = (byte[])чтение[1];
+            }
+        }
+        catch (SqliteException) { /* таблицы нет — обработаем ниже */ }
+
+        if (dll == null)
+            throw new InvalidOperationException(
+                "В базе нет скомпилированной конфигурации (таблица _Сборки).\n" +
+                "Опубликуйте конфигурацию заново из конфигуратора (VS Code).");
+
+        lock (_загруженныеСборки)
+        {
+            var ключ = Path.GetFullPath(файл) + "|" + dll.Length;
+            if (_загруженныеСборки.Contains(ключ)) return;   // уже загружена для этой базы
+
+            var контекст = new System.Runtime.Loader.AssemblyLoadContext("Конфигурация: " + файл);
+            using var потокDll = new MemoryStream(dll);
+            var сборка = pdb == null
+                ? контекст.LoadFromStream(потокDll)
+                : контекст.LoadFromStream(потокDll, new MemoryStream(pdb));
+            РеестрМодулей.Подключить(сборка);   // OneC.Core разрешается в копию клиента (общая статика)
+            _загруженныеСборки.Add(ключ);
+        }
     }
 
     // --- Запросы с отбором и сортировкой (IИсточникЗапросов) ----------------
