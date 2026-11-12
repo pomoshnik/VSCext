@@ -616,11 +616,11 @@ function html(info, formName, elements) {
     else target.arr.push(нов);
     sel = нов; scheduleSave(); render();
   };
-  document.getElementById('btnDel').onclick = () => {
-    if (!sel) return;
   document.getElementById('btnAxaml').onclick = () => {
     vscode.postMessage({ type: 'exportAxaml', elements: els });
   };
+  document.getElementById('btnDel').onclick = () => {
+    if (!sel) return;
     const p = findParent(sel);
     if (!p) return;
     p.arr.splice(p.i, 1);
