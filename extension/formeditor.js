@@ -131,6 +131,7 @@ function html(info, formName, elements) {
     <button id="btnUp" title="Переместить вверх">▲</button>
     <button id="btnDown" title="Переместить вниз">▼</button>
     <button id="btnDel" title="Удалить элемент">✕ Удалить</button>
+    <button id="btnAxaml" title="Создать произвольную AXAML-форму по этой разметке (src/BusinessLogic/Forms)">Экспорт в AXAML</button>
   </div>
   <div class="cols">
     <div class="col-list"><div class="hdr">Элементы формы</div><div id="list"></div>
@@ -617,6 +618,9 @@ function html(info, formName, elements) {
   };
   document.getElementById('btnDel').onclick = () => {
     if (!sel) return;
+  document.getElementById('btnAxaml').onclick = () => {
+    vscode.postMessage({ type: 'exportAxaml', elements: els });
+  };
     const p = findParent(sel);
     if (!p) return;
     p.arr.splice(p.i, 1);

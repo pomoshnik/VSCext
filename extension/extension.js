@@ -815,7 +815,7 @@ function objectInfoFor(provider, objNode) {
     реквизиты: byFolder('Реквизиты').map(l => ({ имя: l.name, синоним: l.synonym || l.name, тип: l.type || 'Строка' })),
     таблицы: byFolder('Табличные части').map(t => ({
       имя: t.name, синоним: t.synonym || t.name,
-      реквизиты: (t.children || []).map(l => ({ имя: l.name, синоним: l.synonym || l.name }))
+      реквизиты: (t.children || []).map(l => ({ имя: l.name, синоним: l.synonym || l.name, тип: l.type || 'Строка' }))
     }))
   };
 }
@@ -856,6 +856,216 @@ async function openHandlerInModule(provider, storage, objNode, method) {
   }
 }
 
+// --- Экспорт формы из дизайнера в произвольную AXAML-форму -------------------
+
+function axamlEscape(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// генерация AXAML по элементам формы; info — objectInfoFor, formName — имя формы
+function generateAxaml(info, formName, elements) {
+  const модель = `${info.вид}_${info.имя}_Модель`;
+  const класс = `${info.вид}_${info.имя}_${formName}`;
+  const типПоля = имя => {
+    const стд = { Код: 'Строка', Наименование: 'Строка', Номер: 'Строка', Дата: 'Дата', Проведен: 'Булево' };
+    const р = (info.реквизиты || []).find(р => р.имя === имя);
+    return (р && р.тип) || стд[имя] || 'Строка';
+  };
+  const L = [];
+  const push = (отступ, текст) => L.push('  '.repeat(отступ) + текст);
+
+  const поле = (о, э) => {
+    const имя = э.Реквизит || '';
+    const тип = типПоля(имя);
+    const заголовок = э.Заголовок || имя;
+    if (тип.includes('.'))
+      push(о, `<!-- TODO: «${имя}» — ссылка (${тип}); в заготовке редактируется значение-ссылка, замените на выбор -->`);
+    push(о, `<Grid ColumnDefinitions="140,*">`);
+    push(о + 1, `<TextBlock Text="${axamlEscape(заголовок)}:" VerticalAlignment="Center"/>`);
+    const ro = э.ТолькоПросмотр;
+    if (тип === 'Булево')
+      push(о + 1, `<CheckBox Grid.Column="1" IsChecked="{Binding ${имя}}"${ro ? ' IsEnabled="False"' : ''}/>`);
+    else
+      push(о + 1, `<TextBox Grid.Column="1" Text="{Binding ${имя}}"${ro ? ' IsReadOnly="True"' : ''}/>`);
+    push(о, `</Grid>`);
+  };
+
+  const таблица = (о, э) => {
+    const тч = (info.таблицы || []).find(t => t.имя === э.ТабличнаяЧасть);
+    if (!тч) return;
+    const строка = `${info.вид}_${info.имя}_${тч.имя}_Строка`;
+    const колонки = тч.реквизиты.map(р => (р.тип === 'Число' ? '90' : '*')).concat('32').join(',');
+    push(о, `<TextBlock Text="${axamlEscape(э.Заголовок || тч.синоним || тч.имя)}" FontWeight="Bold"/>`);
+    push(о, `<Grid ColumnDefinitions="${колонки}">`);
+    тч.реквизиты.forEach((р, i) =>
+      push(о + 1, `<TextBlock Grid.Column="${i}" Text="${axamlEscape(р.синоним || р.имя)}" FontSize="11" Foreground="#8A6D3B"/>`));
+    push(о, `</Grid>`);
+    push(о, `<ItemsControl ItemsSource="{Binding ${тч.имя}}">`);
+    push(о + 1, `<ItemsControl.ItemTemplate>`);
+    push(о + 2, `<DataTemplate x:DataType="m:${строка}">`);
+    push(о + 3, `<Grid ColumnDefinitions="${колонки}" Margin="0,1,0,0">`);
+    тч.реквизиты.forEach((р, i) =>
+      push(о + 4, `<TextBox Grid.Column="${i}" Text="{Binding ${р.имя}}"/>`));
+    push(о + 4, `<Button Grid.Column="${тч.реквизиты.length}" Content="✕" Click="УдалитьСтроку_${тч.имя}"/>`);
+    push(о + 3, `</Grid>`);
+    push(о + 2, `</DataTemplate>`);
+    push(о + 1, `</ItemsControl.ItemTemplate>`);
+    push(о, `</ItemsControl>`);
+    push(о, `<Button Content="Добавить строку" Click="ДобавитьСтроку_${тч.имя}"/>`);
+  };
+
+  const элемент = (о, э) => {
+    switch (э.Тип) {
+      case 'Группа':
+        push(о, `<StackPanel Orientation="${э.Группировка === 'Горизонтальная' ? 'Horizontal' : 'Vertical'}" Spacing="8">`);
+        (э.Элементы || []).forEach(в => элемент(о + 1, в));
+        push(о, `</StackPanel>`);
+        break;
+      case 'Страницы':
+        push(о, `<TabControl>`);
+        (э.Элементы || []).forEach(в => элемент(о + 1, в));
+        push(о, `</TabControl>`);
+        break;
+      case 'Страница':
+        push(о, `<TabItem Header="${axamlEscape(э.Заголовок || 'Страница')}">`);
+        push(о + 1, `<StackPanel Spacing="6" Margin="0,6,0,0">`);
+        (э.Элементы || []).forEach(в => элемент(о + 2, в));
+        push(о + 1, `</StackPanel>`);
+        push(о, `</TabItem>`);
+        break;
+      case 'Декорация':
+        push(о, `<TextBlock Text="${axamlEscape(э.Заголовок)}" Foreground="#8A6D3B" TextWrapping="Wrap"/>`);
+        break;
+      case 'Кнопка':
+        if (э.Действие)
+          push(о, `<Button Content="${axamlEscape(э.Заголовок || э.Действие)}" Command="{Binding ${э.Действие}Команда}"/>`);
+        break;
+      case 'Таблица': таблица(о, э); break;
+      default: поле(о, э);
+    }
+  };
+
+  push(0, `<Window xmlns="https://github.com/avaloniaui"`);
+  push(0, `        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"`);
+  push(0, `        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"`);
+  push(0, `        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"`);
+  push(0, `        xmlns:m="using:BusinessLogic"`);
+  push(0, `        mc:Ignorable="d" d:DesignWidth="700" d:DesignHeight="500"`);
+  push(0, `        x:Class="BusinessLogic.Forms.${класс}"`);
+  push(0, `        x:DataType="m:${модель}"`);
+  push(0, `        Width="700" SizeToContent="Height" WindowStartupLocation="CenterOwner"`);
+  push(0, `        Title="${axamlEscape(info.синоним || info.имя)}" Background="#FFE7B4">`);
+  push(1, `<StackPanel Margin="16" Spacing="8">`);
+  elements.forEach(э => элемент(2, э));
+  push(2, `<TextBlock Text="{Binding Ошибки}" IsVisible="{Binding ЕстьОшибки}" Foreground="#B00020" TextWrapping="Wrap"/>`);
+  push(2, `<StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">`);
+  if (info.вид === 'Документ') {
+    push(3, `<Button Content="Провести и закрыть" Click="ПровестиИЗакрыть"/>`);
+    push(3, `<Button Content="Записать" Click="ЗаписатьБезПроведения"/>`);
+  } else {
+    push(3, `<Button Content="Записать и закрыть" Click="ЗаписатьИЗакрыть"/>`);
+  }
+  push(3, `<Button Content="Отмена" Click="Отмена"/>`);
+  push(2, `</StackPanel>`);
+  push(1, `</StackPanel>`);
+  push(0, `</Window>`);
+  return L.join('\n') + '\n';
+}
+
+function generateAxamlCodeBehind(info, formName, elements) {
+  const модель = `${info.вид}_${info.имя}_Модель`;
+  const класс = `${info.вид}_${info.имя}_${formName}`;
+  const таблицы = [];
+  const walk = эл => (эл || []).forEach(э => {
+    if (э.Тип === 'Таблица' && э.ТабличнаяЧасть && !таблицы.includes(э.ТабличнаяЧасть)) таблицы.push(э.ТабличнаяЧасть);
+    walk(э.Элементы);
+  });
+  walk(elements);
+
+  const L = [];
+  L.push('using Avalonia.Controls;');
+  L.push('using Avalonia.Interactivity;');
+  L.push('using Avalonia.Markup.Xaml;');
+  L.push('using OneC.Core;');
+  L.push('');
+  L.push('namespace BusinessLogic.Forms;');
+  L.push('');
+  L.push(`/// <summary>Произвольная форма «${formName}» объекта ${info.вид}.${info.имя} (экспорт из дизайнера).</summary>`);
+  L.push(`[ПроизвольнаяФорма("${info.вид}.${info.имя}")]`);
+  L.push(`public partial class ${класс} : Window, IПроизвольнаяФорма`);
+  L.push('{');
+  L.push('    КонтекстФормы? _контекст;');
+  L.push(`    public ${модель} Модель { get; } = new();`);
+  L.push('');
+  L.push(`    public ${класс}() => AvaloniaXamlLoader.Load(this);`);
+  L.push('');
+  L.push('    public void Инициализировать(КонтекстФормы контекст)');
+  L.push('    {');
+  L.push('        _контекст = контекст;');
+  L.push('        Модель.Загрузить(контекст.Запись);');
+  L.push('        DataContext = Модель;');
+  L.push('    }');
+  L.push('');
+  L.push('    void Записать(bool провести)');
+  L.push('    {');
+  L.push('        if (_контекст == null) return;');
+  L.push('        Модель.Выгрузить(_контекст.Запись);');
+  L.push('        var отказ = _контекст.Записать(_контекст.Запись, провести);');
+  L.push('        if (отказ.Значение)');
+  L.push('        {');
+  L.push('            Модель.Ошибки = string.Join("\\n", отказ.Сообщения.Select(с => "• " + с));');
+  L.push('            return;');
+  L.push('        }');
+  L.push('        Close(true);');
+  L.push('    }');
+  L.push('');
+  if (info.вид === 'Документ') {
+    L.push('    void ПровестиИЗакрыть(object? sender, RoutedEventArgs e) => Записать(true);');
+    L.push('    void ЗаписатьБезПроведения(object? sender, RoutedEventArgs e) => Записать(false);');
+  } else {
+    L.push('    void ЗаписатьИЗакрыть(object? sender, RoutedEventArgs e) => Записать(false);');
+  }
+  L.push('    void Отмена(object? sender, RoutedEventArgs e) => Close(false);');
+  for (const тч of таблицы) {
+    const строка = `${info.вид}_${info.имя}_${тч}_Строка`;
+    L.push('');
+    L.push(`    void ДобавитьСтроку_${тч}(object? sender, RoutedEventArgs e) => Модель.${тч}.Add(new());`);
+    L.push(`    void УдалитьСтроку_${тч}(object? sender, RoutedEventArgs e)`);
+    L.push('    {');
+    L.push(`        if ((sender as Control)?.DataContext is ${строка} строка) Модель.${тч}.Remove(строка);`);
+    L.push('    }');
+  }
+  L.push('}');
+  return L.join('\n') + '\n';
+}
+
+async function exportFormToAxaml(storage, provider, objNode, formName, elements) {
+  if (!storage.root) return;
+  const info = objectInfoFor(provider, objNode);
+  if (info.вид !== 'Справочник' && info.вид !== 'Документ') {
+    vscode.window.showWarningMessage('Экспорт в AXAML доступен для форм справочников и документов.');
+    return;
+  }
+  const dir = path.join(storage.root, 'src', 'BusinessLogic', 'Forms');
+  fs.mkdirSync(dir, { recursive: true });
+  const база = `${info.вид}_${info.имя}_${formName}`;
+  const axamlFile = path.join(dir, база + '.axaml');
+  const csFile = path.join(dir, база + '.axaml.cs');
+  if (fs.existsSync(axamlFile) || fs.existsSync(csFile)) {
+    const ответ = await vscode.window.showWarningMessage(
+      `Файлы формы «${база}» уже существуют. Перезаписать? (ручные правки будут потеряны)`,
+      'Перезаписать', 'Отмена');
+    if (ответ !== 'Перезаписать') return;
+  }
+  fs.writeFileSync(axamlFile, generateAxaml(info, formName, elements), 'utf8');
+  fs.writeFileSync(csFile, generateAxamlCodeBehind(info, formName, elements), 'utf8');
+  const док = await vscode.workspace.openTextDocument(axamlFile);
+  await vscode.window.showTextDocument(док);
+  vscode.window.showInformationMessage(
+    `Произвольная форма создана: ${path.basename(axamlFile)}. После публикации клиент будет открывать её вместо генерируемой.`);
+}
+
 function cmdOpenForm(provider, treeView, storage, node) {
   node = node || treeView.selection[0];
   if (!node || node.folderType !== 'Формы') return;
@@ -881,6 +1091,10 @@ function cmdOpenForm(provider, treeView, storage, node) {
   panel.webview.onDidReceiveMessage(msg => {
     if (msg.type === 'openHandler') {
       openHandlerInModule(provider, storage, objNode, msg.method);
+      return;
+    }
+    if (msg.type === 'exportAxaml') {
+      exportFormToAxaml(storage, provider, objNode, node.name, msg.elements || node.form || []);
       return;
     }
     if (msg.type !== 'save') return;

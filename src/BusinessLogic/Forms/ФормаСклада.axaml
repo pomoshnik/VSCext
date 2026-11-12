@@ -2,27 +2,30 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:m="using:BusinessLogic"
         mc:Ignorable="d" d:DesignWidth="440" d:DesignHeight="250"
         x:Class="BusinessLogic.Forms.ФормаСклада"
+        x:DataType="m:Справочник_Склады_Модель"
         Width="440" SizeToContent="Height" CanResize="False"
         WindowStartupLocation="CenterOwner"
         Title="Склад" Background="#FFE7B4">
   <StackPanel Margin="16" Spacing="10">
-    <TextBlock Text="Произвольная форма из конфигурации (AXAML)"
+    <TextBlock Text="Произвольная форма из конфигурации (AXAML, компилируемые биндинги)"
                FontSize="12" Foreground="#8A6D3B"/>
 
     <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,10,Auto">
       <TextBlock Text="Код:" VerticalAlignment="Center"/>
-      <TextBox x:Name="Код" Grid.Column="1" Watermark="автоматически"/>
+      <TextBox Grid.Column="1" Text="{Binding Код}" Watermark="автоматически"/>
       <TextBlock Text="Наименование:" Grid.Row="2" VerticalAlignment="Center"/>
-      <TextBox x:Name="Наименование" Grid.Row="2" Grid.Column="1"/>
+      <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Наименование}"/>
     </Grid>
 
-    <TextBlock x:Name="Ошибки" Foreground="#B00020" TextWrapping="Wrap" IsVisible="False"/>
+    <TextBlock Text="{Binding Ошибки}" IsVisible="{Binding ЕстьОшибки}"
+               Foreground="#B00020" TextWrapping="Wrap"/>
 
     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-      <Button x:Name="КнопкаЗаписать" Content="Записать и закрыть"/>
-      <Button x:Name="КнопкаОтмена" Content="Отмена"/>
+      <Button Content="Записать и закрыть" Click="ЗаписатьИЗакрыть"/>
+      <Button Content="Отмена" Click="Отмена"/>
     </StackPanel>
   </StackPanel>
 </Window>

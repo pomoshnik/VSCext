@@ -197,6 +197,54 @@ public class Запрос
     }
 }
 
+/// <summary>
+/// База моделей произвольных форм: INotifyPropertyChanged для компилируемых биндингов AXAML.
+/// Генерируемые модели (Generated/Модели.g.cs) наследуются от неё.
+/// </summary>
+public abstract class МодельФормы : System.ComponentModel.INotifyPropertyChanged
+{
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    protected void Изменено(string имя) =>
+        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(имя));
+
+    protected bool Установить<T>(ref T поле, T значение,
+        [System.Runtime.CompilerServices.CallerMemberName] string? имя = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(поле, значение)) return false;
+        поле = значение;
+        Изменено(имя!);
+        return true;
+    }
+
+    string? _ошибки;
+    /// <summary>Текст ошибок (отказы, исключения команд) — биндится в форме.</summary>
+    public string? Ошибки
+    {
+        get => _ошибки;
+        set { if (Установить(ref _ошибки, value)) Изменено(nameof(ЕстьОшибки)); }
+    }
+    public bool ЕстьОшибки => !string.IsNullOrEmpty(_ошибки);
+
+    // Конверсия значений записи (генерируемый код)
+    protected static string Стр(Dictionary<string, object?> п, string имя) =>
+        п.TryGetValue(имя, out var v) ? v?.ToString() ?? "" : "";
+    protected static decimal Числ(Dictionary<string, object?> п, string имя) =>
+        decimal.TryParse(Стр(п, имя), System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0m;
+    protected static bool Бул(Dictionary<string, object?> п, string имя) =>
+        Стр(п, имя) is "1" or "True" or "true";
+}
+
+/// <summary>ICommand для кнопок произвольных форм: выполняет действие модели.</summary>
+public sealed class КомандаМодели : System.Windows.Input.ICommand
+{
+    readonly Action _действие;
+    public КомандаМодели(Action действие) => _действие = действие;
+    public bool CanExecute(object? параметр) => true;
+    public event EventHandler? CanExecuteChanged { add { } remove { } }
+    public void Execute(object? параметр) => _действие();
+}
+
 /// <summary>Отмечает окно произвольной формы объекта в сборке конфигурации.</summary>
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class ПроизвольнаяФормаAttribute : Attribute
