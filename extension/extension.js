@@ -833,7 +833,11 @@ async function openHandlerInModule(provider, storage, objNode, method) {
     provider.refresh();
   }
   let text = fs.readFileSync(file, 'utf8');
-  if (!new RegExp('\\b' + method + '\\s*\\(').test(text)) {
+  // ВАЖНО: \b в JS не считает кириллицу «словом» — границу проверяем вручную,
+  // иначе существующий метод не находится и дописывается дубликат
+  const имяЭкранированное = method.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const методЕсть = new RegExp('(^|[^0-9A-Za-zА-Яа-яЁё_])' + имяЭкранированное + '\\s*\\(', 'm').test(text);
+  if (!методЕсть) {
     const idx = text.lastIndexOf('}');
     if (idx < 0) return;
     const snippet = '\n    // Обработчик события/команды формы (клиент вызывает его по имени)\n' +
