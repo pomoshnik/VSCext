@@ -209,6 +209,16 @@ public class База : IDisposable, IИсточникЗапросов
         к.ExecuteNonQuery();
     }
 
+    /// <summary>Обновить одно поле записи (пометка удаления, снятие проведения) — без перезаписи остальных колонок.</summary>
+    public void ОбновитьПоле(string таблица, string ключ, string значениеКлюча, string поле, object? значение)
+    {
+        using var к = _соединение.CreateCommand();
+        к.CommandText = $"UPDATE \"{таблица}\" SET \"{ВКолонку(таблица, поле)}\" = @з WHERE \"{ВКолонку(таблица, ключ)}\" = @к";
+        к.Parameters.AddWithValue("@з", значение ?? "");
+        к.Parameters.AddWithValue("@к", значениеКлюча);
+        к.ExecuteNonQuery();
+    }
+
     public long Количество(string таблица)
     {
         if (!ТаблицаЕсть(таблица)) return 0;

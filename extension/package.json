@@ -2,7 +2,7 @@
   "name": "onec-config-tree",
   "displayName": "Дерево конфигурации 1С",
   "description": "Дерево конфигурации в стиле 1С: хранение в JSON-файлах, модули бизнес-логики на C#, публикация в SQLite и клиент на Avalonia.",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "publisher": "arena-tools",
   "license": "MIT",
   "icon": "media/logo.png",

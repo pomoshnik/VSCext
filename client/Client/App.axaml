@@ -81,6 +81,12 @@
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+    <Style Selector="TextBlock.iconHeaderCell">
+      <Setter Property="Width" Value="22" />
+    </Style>
+    <Style Selector="Border.iconCell">
+      <Setter Property="Width" Value="22" />
+    </Style>
     <!-- синий значок информационной базы -->
     <Style Selector="TextBlock.baseIcon">
       <Setter Property="Foreground" Value="#4a7ebb" />

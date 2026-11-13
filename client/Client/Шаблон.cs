@@ -60,6 +60,47 @@ public static class Шаблон
         return т;
     }
     public static TextBlock ЯчейкаШапки(string текст) => С(new TextBlock { Text = текст }, "headerCell");
+    public static TextBlock ЯчейкаШапкиИконки() => С(new TextBlock(), "iconHeaderCell");
+
+    /// <summary>
+    /// Пиктограмма состояния строки списка (как в 1С): иконка документа или элемента справочника;
+    /// проведён — зелёная галочка внизу, помечен на удаление — красный крестик поверх.
+    /// </summary>
+    public static Control ИконкаСтроки(string вид, bool проведен, bool пометка)
+    {
+        var холст = new Canvas { Width = 16, Height = 16 };
+        void Фигура(string контур, string? заливка, string? обводка, double толщина = 0.9) =>
+            холст.Children.Add(new Avalonia.Controls.Shapes.Path
+            {
+                Data = Avalonia.Media.Geometry.Parse(контур),
+                Fill = заливка == null ? null : Avalonia.Media.Brush.Parse(заливка),
+                Stroke = обводка == null ? null : Avalonia.Media.Brush.Parse(обводка),
+                StrokeThickness = обводка == null ? 0 : толщина,
+                StrokeJoin = Avalonia.Media.PenLineJoin.Round,
+                StrokeLineCap = Avalonia.Media.PenLineCap.Round
+            });
+
+        if (вид == "Документ")
+        {
+            // лист с загнутым уголком — как иконка документа в дереве конфигурации
+            Фигура("M3.5,1.5 L10.5,1.5 L13,4 L13,14.5 L3.5,14.5 Z", "#FFFFFF", "#2E6DA4");
+            Фигура("M10.5,1.5 L10.5,4 L13,4 Z", "#DCEEFB", "#2E6DA4");
+            Фигура("M5,6 h6 v1.1 h-6 Z M5,8.4 h6 v1.1 h-6 Z M5,10.8 h4 v1.1 h-4 Z", "#5B9BD5", null);
+        }
+        else
+        {
+            // карточка — как иконка справочника в дереве конфигурации
+            Фигура("M2.5,2 h11 v12 h-11 Z", "#FFFFFF", "#B8860B");
+            Фигура("M2.5,2 h11 v3 h-11 Z", "#F6C445", "#B8860B");
+            Фигура("M4.5,6.6 h7 v1.1 h-7 Z M4.5,9 h7 v1.1 h-7 Z M4.5,11.4 h4.5 v1.1 h-4.5 Z", "#5B9BD5", null);
+        }
+        if (проведен && !пометка)
+            Фигура("M6,10 L9,13 L14,7", null, "#1E9E3E", 2.2);
+        if (пометка)
+            Фигура("M3,3 L13,13 M13,3 L3,13", null, "#D64540", 1.8);
+
+        return С(new Border { Child = холст, VerticalAlignment = VerticalAlignment.Center }, "iconCell");
+    }
     public static TextBlock Ячейка(string текст) => С(new TextBlock { Text = текст }, "cell");
 
     // ------------------------------------------------------------------ табличные части

@@ -132,6 +132,8 @@ function html(info, formName, elements, props) {
   .tbl1c table { border-collapse: collapse; width: 100%; }
   .tbl1c th { background: #eef0f2; border: 1px solid #c5cad0; padding: 3px 6px; text-align: left; font-weight: 600; color: #444; }
   .tbl1c td { border: 1px solid #d8dce0; padding: 3px 6px; height: 14px; }
+  .tbl1c th.icn, .tbl1c td.icn { width: 20px; min-width: 20px; padding: 1px 2px; text-align: center; }
+  .tbl1c td.icn svg { vertical-align: middle; }
 
   /* Декорация */
   .deco1c { color: #666; margin: 6px 0 2px; cursor: pointer; }
@@ -302,8 +304,7 @@ function html(info, formName, elements, props) {
   function tabularDef(name) { return info.таблицы.find(t => t.имя === name); }
   // реквизиты, доступные колонкам СПИСКА (как схема списка в клиенте)
   function listAttrs() {
-    const доп = info.вид === 'Документ' ? [{ имя: 'Проведен', синоним: 'Проведен', тип: 'Булево' }] : [];
-    return доп.concat(info.стандартные, info.реквизиты);
+    return info.стандартные.concat(info.реквизиты);   // состояние (проведён/пометка) показывает пиктограмма, не колонка
   }
   // колонки таблицы/списка: настроенные (e.Колонки) или все по умолчанию
   function colAttrsOf(e) {
@@ -831,10 +832,20 @@ function html(info, formName, elements, props) {
                 + (к.Ширина > 0 ? ' style="width:' + к.Ширина + 'px"' : '') + '>'
                 + colTitle(e, к) + '</th>';
           }
+          // пиктограмма состояния (как в 1С): иконка объекта из дерева + галочка (проведён) / крестик (пометка удаления)
+          const док = info.вид === 'Документ';
+          const иконка = s => '<svg width="14" height="14" viewBox="0 0 16 16">' + (док
+            ? "<path d='M3.5 1.5 L10.5 1.5 L13 4 L13 14.5 L3.5 14.5 Z' fill='#fff' stroke='#2e6da4' stroke-width='0.9'/><path d='M10.5 1.5 L10.5 4 L13 4 Z' fill='#dceefb' stroke='#2e6da4' stroke-width='0.9'/><rect x='5' y='6' width='6' height='1.1' fill='#5b9bd5'/><rect x='5' y='8.4' width='6' height='1.1' fill='#5b9bd5'/><rect x='5' y='10.8' width='4' height='1.1' fill='#5b9bd5'/>"
+            : "<rect x='2.5' y='2' width='11' height='12' rx='1' fill='#fff' stroke='#b8860b' stroke-width='0.9'/><rect x='2.5' y='2' width='11' height='3' fill='#f6c445' stroke='#b8860b' stroke-width='0.9'/><rect x='4.5' y='6.6' width='7' height='1.1' fill='#5b9bd5'/><rect x='4.5' y='9' width='7' height='1.1' fill='#5b9bd5'/>")
+            + (s === 'п' ? "<path d='M6 10 L9 13 L14 7' fill='none' stroke='#1e9e3e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/>" : '')
+            + (s === 'у' ? "<path d='M3 3 L13 13 M13 3 L3 13' fill='none' stroke='#d64540' stroke-width='1.8' stroke-linecap='round'/>" : '')
+            + '</svg>';
+          const статусы = док ? ['п', '', 'у', 'п'] : ['', '', 'у', ''];
           let rows = '';
-          for (let r = 1; r <= 4; r++) rows += '<tr>' + '<td></td>'.repeat(видимыеКол.length) + '</tr>';
+          for (let r = 0; r < 4; r++)
+            rows += '<tr><td class="icn">' + иконка(статусы[r]) + '</td>' + '<td></td>'.repeat(видимыеКол.length) + '</tr>';
           wrap.innerHTML = '<div class="cap">🔍 <input placeholder="Поиск (Ctrl+F)" style="border:1px solid #aab2ba;padding:2px 6px;pointer-events:none"></div>'
-            + '<table><tr>' + ths + '</tr>' + rows + '</table>';
+            + '<table><tr><th class="icn" title="Состояние: зелёная галочка — проведён, красный крестик — помечен на удаление"></th>' + ths + '</tr>' + rows + '</table>';
           wrap.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
           for (const th of wrap.querySelectorAll('th[data-col]'))
             th.onclick = ev => {

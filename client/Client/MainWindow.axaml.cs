@@ -38,6 +38,7 @@ public partial class MainWindow : Window
         _кнДобавить = this.FindControl<Button>("КнДобавить")!;
         _кнИзменить = this.FindControl<Button>("КнИзменить")!;
         _кнУдалить = this.FindControl<Button>("КнУдалить")!;
+        ToolTip.SetTip(_кнУдалить, "Пометить на удаление / Снять пометку");
         _кнОбновить = this.FindControl<Button>("КнОбновить")!;
         Title = "1С-мини клиент";
     }
@@ -133,7 +134,7 @@ public partial class MainWindow : Window
                 new List<string> { "Код", "Наименование" }.Concat(о.Реквизиты.Select(р => р.Имя)).ToList(),
                 "Ссылка", true),
             "Документ" => (таблица,
-                new List<string> { "Проведен", "Номер", "Дата" }.Concat(о.Реквизиты.Select(р => р.Имя)).ToList(),
+                new List<string> { "Номер", "Дата" }.Concat(о.Реквизиты.Select(р => р.Имя)).ToList(),
                 "Ссылка", true),
             "Перечисление" => (таблица, new List<string> { "Имя", "Синоним" }, "Имя", false),
             "РегистрСведений" => (таблица,
@@ -170,6 +171,8 @@ public partial class MainWindow : Window
             foreach (var к in колНастр) настройкиКолонок[к.Реквизит] = к;
         }
         _колонки = колонки;
+        // Колонка-пиктограмма (как в 1С): состояние строки — проведён / помечен на удаление
+        var сИконкой = _текущий.Вид is "Справочник" or "Документ";
         _кнДобавить.IsEnabled = _кнИзменить.IsEnabled = _кнУдалить.IsEnabled = редактируемый;
         if (_кнОстатки != null) _кнОстатки.IsVisible = _текущий.Вид == "РегистрНакопления";
 
@@ -199,6 +202,7 @@ public partial class MainWindow : Window
             _кнДобавить.IsVisible = _кнИзменить.IsVisible = _кнУдалить.IsVisible = _кнОбновить.IsVisible = true;
 
         // Заголовки: клик — сортировка (повторный клик — обратный порядок)
+        if (сИконкой) _шапкаТаблицы.Children.Add(Шаблон.ЯчейкаШапкиИконки());
         foreach (var к in колонки)
         {
             var заголовокКолонки = настройкиКолонок.TryGetValue(к, out var нк) && !string.IsNullOrEmpty(нк.Заголовок)
@@ -223,7 +227,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var порядок = колонки.FirstOrDefault(к => к != "Проведен");
+        var порядок = колонки.FirstOrDefault();
         var строки = _база.Выбрать(таблица, порядок);
 
         // Отображаемые значения считаем один раз: по ним работают и поиск, и сортировка
@@ -234,8 +238,6 @@ public partial class MainWindow : Window
             foreach (var к in колонки)
             {
                 var значение = строка.TryGetValue(к, out var v) ? v?.ToString() ?? "" : "";
-                if (к == "Проведен")
-                    значение = значение is "1" or "True" or "true" ? "✓" : "";
                 var тип = ТипКолонки(_текущий, к);
                 if (тип != null && тип.Contains("Ссылка."))
                     значение = _база.Представление(тип, значение);
@@ -275,6 +277,8 @@ public partial class MainWindow : Window
         foreach (var (строка, значения) in видимые)
         {
             var панель = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
+            if (сИконкой)
+                панель.Children.Add(Шаблон.ИконкаСтроки(_текущий.Вид, Флаг(строка, "Проведен"), Флаг(строка, "ПометкаУдаления")));
             for (int i = 0; i < значения.Count; i++)
             {
                 var яч = Шаблон.Ячейка(значения[i]);
@@ -294,6 +298,9 @@ public partial class MainWindow : Window
         if (_текущий == null || _текущий.Вид != "РегистрНакопления") return;
         new ОкноОстатков(_база, _текущий).ShowDialog(this);
     }
+
+    static bool Флаг(Dictionary<string, object?> строка, string имя) =>
+        строка.TryGetValue(имя, out var з) && з?.ToString() is "1" or "True" or "true";
 
     Dictionary<string, object?>? ВыбраннаяСтрока() =>
         (_списокЗаписей.SelectedItem as ListBoxItem)?.Tag as Dictionary<string, object?>;
@@ -342,15 +349,20 @@ public partial class MainWindow : Window
 
         var имя = строка.TryGetValue("Наименование", out var н) ? н?.ToString() :
                   строка.TryGetValue("Номер", out var номер) ? номер?.ToString() : "";
-        var да = await Шаблон.Вопрос(this, $"Объект «{имя}» будет удален. Продолжить?");
+        var помечен = Флаг(строка, "ПометкаУдаления");
+        var да = await Шаблон.Вопрос(this, помечен
+            ? $"Снять с «{имя}» пометку удаления?"
+            : $"Пометить «{имя}» на удаление?");
         if (!да) return;
 
         var значениеКлюча = строка[ключ]?.ToString() ?? "";
-        _база.Удалить(таблица, ключ, значениеКлюча);
-        if (_текущий.Вид == "Документ") _база.УдалитьДвижения(значениеКлюча);
-        // строки табличных частей документа/справочника
-        foreach (var тч in _текущий.ТабличныеЧасти.Where(т => т.Таблица != null))
-            _база.Удалить(тч.Таблица!, "Ссылка", значениеКлюча);
+        _база.ОбновитьПоле(таблица, ключ, значениеКлюча, "ПометкаУдаления", помечен ? 0 : 1);
+        if (!помечен && _текущий.Вид == "Документ")
+        {
+            // как в 1С: пометка удаления снимает документ с проведения
+            _база.ОбновитьПоле(таблица, ключ, значениеКлюча, "Проведен", 0);
+            _база.УдалитьДвижения(значениеКлюча);
+        }
         ПоказатьСписок();
     }
 }
