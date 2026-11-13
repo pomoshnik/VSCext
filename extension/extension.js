@@ -192,6 +192,11 @@ function leafToJson(leaf) {
     j.Реквизиты = (leaf.children || []).map(leafToJson);
   }
   if (leaf.folderType === 'Формы' && leaf.form) j.Элементы = leaf.form;
+  if (leaf.folderType === 'Формы' && leaf.props) {
+    if (leaf.props.Заголовок) j.Заголовок = leaf.props.Заголовок;
+    if (leaf.props.Ширина > 0) j.Ширина = leaf.props.Ширина;
+    if (leaf.props.Высота > 0) j.Высота = leaf.props.Высота;
+  }
   if (leaf.column) j.Колонка = leaf.column;
   if (leaf.prevNames && leaf.prevNames.length) j.ПрежниеИмена = leaf.prevNames;
   return j;
@@ -220,6 +225,8 @@ function jsonToLeaf(j, folderType) {
     leaf.children = (j.Реквизиты || []).map(r => jsonToLeaf(r, 'Реквизиты'));
   }
   if (folderType === 'Формы' && j.Элементы) leaf.form = j.Элементы;
+  if (folderType === 'Формы' && (j.Заголовок || j.Ширина || j.Высота))
+    leaf.props = { Заголовок: j.Заголовок || '', Ширина: j.Ширина || 0, Высота: j.Высота || 0 };
   if (j.Колонка) leaf.column = j.Колонка;
   if (j.ПрежниеИмена) leaf.prevNames = j.ПрежниеИмена;
   return leaf;
@@ -956,19 +963,25 @@ function generateAxaml(info, formName, elements) {
     const тч = (info.таблицы || []).find(t => t.имя === э.ТабличнаяЧасть);
     if (!тч) return;
     const строка = `${info.вид}_${info.имя}_${тч.имя}_Строка`;
-    const колонки = тч.реквизиты.map(р => (р.тип === 'Число' ? '90' : '*')).concat('32').join(',');
+    // состав колонок: из дизайнера (порядок/заголовок/видимость/ширина) или все реквизиты ТЧ
+    const видимые = (э.Колонки && э.Колонки.length)
+      ? э.Колонки.filter(к => к.Видимость !== false)
+          .map(к => ({ р: тч.реквизиты.find(р => р.имя === к.Реквизит), к })).filter(x => x.р)
+      : тч.реквизиты.map(р => ({ р, к: null }));
+    const колонки = видимые.map(({ р, к }) =>
+      (к && к.Ширина > 0) ? String(к.Ширина) : (р.тип === 'Число' ? '90' : '*')).concat('32').join(',');
     push(о, `<TextBlock Text="${axamlEscape(э.Заголовок || тч.синоним || тч.имя)}" FontWeight="Bold"/>`);
     push(о, `<Grid ColumnDefinitions="${колонки}">`);
-    тч.реквизиты.forEach((р, i) =>
-      push(о + 1, `<TextBlock Grid.Column="${i}" Text="${axamlEscape(р.синоним || р.имя)}" FontSize="11" Foreground="#8A6D3B"/>`));
+    видимые.forEach(({ р, к }, i) =>
+      push(о + 1, `<TextBlock Grid.Column="${i}" Text="${axamlEscape((к && к.Заголовок) || р.синоним || р.имя)}" FontSize="11" Foreground="#8A6D3B"/>`));
     push(о, `</Grid>`);
     push(о, `<ItemsControl ItemsSource="{Binding ${тч.имя}}">`);
     push(о + 1, `<ItemsControl.ItemTemplate>`);
     push(о + 2, `<DataTemplate x:DataType="m:${строка}">`);
     push(о + 3, `<Grid ColumnDefinitions="${колонки}" Margin="0,1,0,0">`);
-    тч.реквизиты.forEach((р, i) =>
-      push(о + 4, `<TextBox Grid.Column="${i}" Text="{Binding ${р.имя}}"/>`));
-    push(о + 4, `<Button Grid.Column="${тч.реквизиты.length}" Content="✕" Click="УдалитьСтроку_${тч.имя}"/>`);
+    видимые.forEach(({ р, к }, i) =>
+      push(о + 4, `<TextBox Grid.Column="${i}" Text="{Binding ${р.имя}}"${(к && к.ТолькоПросмотр) ? ' IsReadOnly="True"' : ''}/>`));
+    push(о + 4, `<Button Grid.Column="${видимые.length}" Content="✕" Click="УдалитьСтроку_${тч.имя}"/>`);
     push(о + 3, `</Grid>`);
     push(о + 2, `</DataTemplate>`);
     push(о + 1, `</ItemsControl.ItemTemplate>`);
@@ -1000,7 +1013,7 @@ function generateAxaml(info, formName, elements) {
         break;
       case 'Кнопка':
         if (э.Действие)
-          push(о, `<Button Content="${axamlEscape(э.Заголовок || э.Действие)}" Command="{Binding ${э.Действие}Команда}"${э.Видимость === false ? ' IsVisible="False"' : ''}${э.Доступность === false ? ' IsEnabled="False"' : ''}/>`);
+          push(о, `<Button Content="${axamlEscape(э.Заголовок || э.Действие)}" Command="{Binding ${э.Действие}Команда}"${э.КнопкаПоУмолчанию ? ' IsDefault="True"' : ''}${э.Видимость === false ? ' IsVisible="False"' : ''}${э.Доступность === false ? ' IsEnabled="False"' : ''}/>`);
         break;
       case 'Таблица': таблица(о, э); break;
       default: поле(о, э);
@@ -1137,9 +1150,10 @@ function cmdOpenForm(provider, treeView, storage, node) {
   const info = objectInfoFor(provider, objNode);
   if (!node.form || !node.form.length) node.form = formEditor.defaultElements(info);
 
+  if (!node.props) node.props = { Заголовок: '', Ширина: 0, Высота: 0 };
   let panel = formPanels.get(node.id);
   if (panel) {
-    panel.webview.html = formEditor.html(info, node.name, node.form);
+    panel.webview.html = formEditor.html(info, node.name, node.form, node.props);
     panel.reveal();
     return;
   }
@@ -1166,15 +1180,20 @@ function cmdOpenForm(provider, treeView, storage, node) {
       openObjectModule(provider, storage, objNode);
       return;
     }
+    if (msg.type === 'focusProps') {   // пункт «Свойства» контекстного меню дизайнера
+      vscode.commands.executeCommand('onecProps.focus');
+      return;
+    }
     if (msg.type !== 'save') return;
     node.form = msg.elements;
+    if (msg.props) node.props = msg.props;
     provider.refresh();
   });
   // при возврате на вкладку дизайнера палитра снова показывает его выделение
   panel.onDidChangeViewState(e => {
     if (e.webviewPanel.active) e.webviewPanel.webview.postMessage({ type: 'requestSelection' });
   });
-  panel.webview.html = formEditor.html(info, node.name, node.form);
+  panel.webview.html = formEditor.html(info, node.name, node.form, node.props);
 }
 
 // --- Публикация в SQLite ------------------------------------------------------
@@ -1374,6 +1393,33 @@ function elementPropsHtml(e, formName) {
   if (!e) return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><style>${PAL_STYLE}</style></head>
 <body><div class="cat">Форма: ${esc(formName)}</div><div class="empty">Выберите элемент формы.</div></body></html>`;
 
+  // --- свойства САМОЙ ФОРМЫ (корневой узел «Форма» в дереве дизайнера) ---
+  if (e.Тип === 'Форма') {
+    return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><style>${PAL_STYLE}</style></head>
+<body>
+  <div class="cat">Свойства: Форма «${esc(formName)}»</div>
+  <div class="cat">Основные:</div>
+  <table>
+    <tr><td class="lbl">Заголовок</td><td><input data-f="Заголовок" value="${esc(e.Заголовок)}" placeholder="(автозаголовок)"></td></tr>
+    <tr><td class="lbl">Ширина</td><td><input data-f="Ширина" type="number" min="0" value="${e.Ширина || 0}" title="0 — автоматически"></td></tr>
+    <tr><td class="lbl">Высота</td><td><input data-f="Высота" type="number" min="0" value="${e.Высота || 0}" title="0 — автоматически"></td></tr>
+  </table>
+  <script>
+    const vscode = acquireVsCodeApi();
+    for (const el of document.querySelectorAll('[data-f]'))
+      el.addEventListener('input', () => vscode.postMessage({
+        type: 'elSet', field: el.dataset.f,
+        value: el.type === 'number' ? (parseInt(el.value, 10) || 0) : el.value
+      }));
+  </script>
+</body></html>`;
+  }
+  if (e.Тип === 'КоманднаяПанель') {
+    return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><style>${PAL_STYLE}</style></head>
+<body><div class="cat">Командная панель формы «${esc(formName)}»</div>
+<div class="empty">Кнопки формы. Состав пополняется с закладки «Команды» дизайнера.</div></body></html>`;
+  }
+
   const text = (lbl, f, val, ph) =>
     `<tr><td class="lbl">${lbl}</td><td><input data-f="${f}" value="${esc(val)}"${ph ? ` placeholder="${esc(ph)}"` : ''}></td></tr>`;
   const check = (lbl, f, val) =>
@@ -1393,6 +1439,10 @@ function elementPropsHtml(e, formName) {
     if (e.ТипЗначения) осн.push(ro('Тип значения', e.ТипЗначения));
   }
   if (e.Тип === 'Таблица') осн.push(ro('ПутьКДанным', e.ПутьКДанным || ('Объект.' + (e.ТабличнаяЧасть || ''))));
+  if (e.Тип === 'Колонка') {
+    осн.push(ro('ПутьКДанным', e.ПутьКДанным || ''));
+    if (e.ТипЗначения) осн.push(ro('Тип значения', e.ТипЗначения));
+  }
   if (e.Тип === 'Кнопка') {
     if (PAL_STD_ACTIONS.includes(e.Действие))
       осн.push(ro('Действие', e.Действие));
@@ -1406,14 +1456,18 @@ function elementPropsHtml(e, formName) {
     осн.push(combo('ПоложениеЗаголовка', 'ПоложениеЗаголовка', e.ПоложениеЗаголовка || 'Авто', ['Авто', 'Лево', 'Верх', 'Нет']));
   if (e.Тип === 'Группа')
     осн.push(combo('Группировка', 'Группировка', e.Группировка || 'Вертикальная', ['Вертикальная', 'Горизонтальная']));
+  if (e.Тип === 'Колонка')
+    осн.push(`<tr><td class="lbl">Ширина</td><td><input data-f="Ширина" type="number" min="0" value="${e.Ширина || 0}" title="0 — автоматически"></td></tr>`);
 
   // --- Использование ---
   const исп = [];
   исп.push(check('Видимость', 'Видимость', e.Видимость !== false));
-  if (e.Тип !== 'Декорация' && e.Тип !== 'Страница' && e.Тип !== 'Страницы')
+  if (!['Декорация', 'Страница', 'Страницы', 'Колонка'].includes(e.Тип))
     исп.push(check('Доступность', 'Доступность', e.Доступность !== false));
-  if (e.Тип === 'Поле' || e.Тип === 'Таблица')
+  if (e.Тип === 'Поле' || e.Тип === 'Таблица' || e.Тип === 'Колонка')
     исп.push(check('ТолькоПросмотр', 'ТолькоПросмотр', !!e.ТолькоПросмотр));
+  if (e.Тип === 'Кнопка')
+    исп.push(check('КнопкаПоУмолчанию', 'КнопкаПоУмолчанию', !!e.КнопкаПоУмолчанию));
   if (e.Тип === 'Поле' && (!e.Вид || e.Вид === 'Поле ввода')) {
     исп.push(check('МногострочныйРежим', 'МногострочныйРежим', !!e.МногострочныйРежим));
     исп.push(check('РежимПароля', 'РежимПароля', !!e.РежимПароля));
@@ -1441,7 +1495,7 @@ function elementPropsHtml(e, formName) {
     for (const el of document.querySelectorAll('[data-f]')) {
       const отправить = () => vscode.postMessage({
         type: 'elSet', field: el.dataset.f,
-        value: el.type === 'checkbox' ? el.checked : el.value
+        value: el.type === 'checkbox' ? el.checked : el.type === 'number' ? (parseInt(el.value, 10) || 0) : el.value
       });
       el.addEventListener(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input', отправить);
     }

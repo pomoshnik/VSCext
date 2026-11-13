@@ -28,8 +28,9 @@ function defaultElements(info) {
   return els;
 }
 
-function html(info, formName, elements) {
-  const data = JSON.stringify({ info, formName, elements }).replace(/</g, '\\u003c');
+function html(info, formName, elements, props) {
+  const data = JSON.stringify({ info, formName, elements,
+    props: props || { Заголовок: '', Ширина: 0, Высота: 0 } }).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="UTF-8">
 <style>
@@ -77,6 +78,14 @@ function html(info, formName, elements) {
   .el.sel { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
   .el .ico { width: 14px; text-align: center; flex: none; }
   .el.drag-over { border-top: 2px solid #ff8c00; }
+  .el.dim { opacity: .5; }
+  .ctx { position: fixed; z-index: 99; background: var(--vscode-menu-background, #fff);
+         color: var(--vscode-menu-foreground, #222); border: 1px solid var(--vscode-panel-border);
+         box-shadow: 0 4px 12px rgba(0,0,0,.3); min-width: 170px; }
+  .ctx div { padding: 5px 14px; cursor: pointer; }
+  .ctx div:hover { background: var(--vscode-list-hoverBackground, #eee); }
+  .ctx hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 3px 0; }
+  .tbl1c th.sel-col { outline: 2px solid #ff8c00; outline-offset: -2px; }
   .el.drag-into { border: 1px dashed #ff8c00; }
 
   /* Превью: управляемая форма 1С */
@@ -175,11 +184,15 @@ function html(info, formName, elements) {
   const vscode = acquireVsCodeApi();
   const data = ${data};
   const info = data.info;
+  const props = data.props;         // свойства самой формы (Заголовок/Ширина/Высота)
   let els = data.elements;          // корневой массив (дерево: контейнеры имеют .Элементы)
-  let sel = els.length ? els[0] : null;  // выбранный ЭЛЕМЕНТ (ссылка на объект)
+  const FORM_NODE = { __форма: true };     // спец-узлы дерева (как в 1С)
+  const CMDBAR_NODE = { __кп: true };
+  let sel = els.length ? els[0] : null;  // выбранный ЭЛЕМЕНТ (ссылка/спец-узел/колонка)
   let dragged = null;
   let attrDrag = null;              // перетаскиваемый реквизит/ТЧ/команда из панели
   let attrTab = 'attrs';            // активная вкладка панели: 'attrs' | 'cmds'
+  let treeRows = [];                // строки дерева для «мягкого» обновления подписей
   let saveTimer = null;
   const expandedT = new Set();      // раскрытые ТЧ в панели реквизитов
   const activePages = new Map();    // элемент «Страницы» -> активная вкладка (индекс)
@@ -194,6 +207,24 @@ function html(info, formName, elements) {
   // Выделенный элемент показывается в палитре свойств (правая панель VS Code)
   function postSelection() {
     let клон = null;
+    if (sel === FORM_NODE) {
+      клон = { Тип: 'Форма', Заголовок: props.Заголовок || '', Ширина: props.Ширина || 0, Высота: props.Высота || 0 };
+      vscode.postMessage({ type: 'elementSelected', element: клон });
+      return;
+    }
+    if (sel === CMDBAR_NODE) {
+      vscode.postMessage({ type: 'elementSelected', element: { Тип: 'КоманднаяПанель' } });
+      return;
+    }
+    if (sel && sel.__кол) {
+      const к = sel.колонка;
+      клон = { Тип: 'Колонка', Имя: к.Реквизит, Реквизит: к.Реквизит, Заголовок: к.Заголовок || '',
+               Видимость: к.Видимость !== false, ТолькоПросмотр: !!к.ТолькоПросмотр, Ширина: к.Ширина || 0,
+               ПутьКДанным: 'Объект.' + sel.таблица.ТабличнаяЧасть + '.' + к.Реквизит,
+               ТипЗначения: colType(sel.таблица, к) };
+      vscode.postMessage({ type: 'elementSelected', element: клон });
+      return;
+    }
     if (sel) {
       клон = JSON.parse(JSON.stringify(sel));
       // служебные поля для палитры свойств (как в 1С): ПутьКДанным, Вид, Тип значения
@@ -215,6 +246,21 @@ function html(info, formName, elements) {
     const m = ev.data || {};
     if (m.type === 'requestSelection') { postSelection(); return; }
     if (m.type !== 'propEdit' || !sel) return;
+    if (sel === FORM_NODE) {        // свойства самой формы
+      if (['Заголовок', 'Ширина', 'Высота'].includes(m.field)) {
+        props[m.field] = m.value;
+        scheduleSave();
+        if (m.field === 'Заголовок') renderSoft();
+      }
+      return;
+    }
+    if (sel.__кол) {                // свойства колонки таблицы
+      if (['Заголовок', 'Видимость', 'ТолькоПросмотр', 'Ширина'].includes(m.field)) {
+        sel.колонка[m.field] = m.value;
+        scheduleSave(); render();
+      }
+      return;
+    }
     if (m.field === 'Событие') {
       sel.События = sel.События || {};
       if (m.value) sel.События[m.event] = m.value; else delete sel.События[m.event];
@@ -226,7 +272,7 @@ function html(info, formName, elements) {
     if (m.field === 'Группировка') { sel.Группировка = m.value; scheduleSave(); render(); return; }
     if (m.field === 'Действие') { sel.Действие = m.value; scheduleSave(); render(); return; }
     if (m.field === 'Имя') { sel.Имя = m.value; scheduleSave(); return; }
-    if (['Видимость', 'Доступность', 'ПоложениеЗаголовка', 'МногострочныйРежим', 'РежимПароля'].includes(m.field)) {
+    if (['Видимость', 'Доступность', 'ПоложениеЗаголовка', 'МногострочныйРежим', 'РежимПароля', 'КнопкаПоУмолчанию'].includes(m.field)) {
       sel[m.field] = m.value; scheduleSave(); render(); return;
     }
   });
@@ -237,6 +283,24 @@ function html(info, formName, elements) {
     return info.стандартные.find(f => f.имя === name) || info.реквизиты.find(f => f.имя === name);
   }
   function tabularDef(name) { return info.таблицы.find(t => t.имя === name); }
+  // колонки таблицы: настроенные (e.Колонки) или все реквизиты ТЧ
+  function colsOf(e) {
+    if (e.Колонки && e.Колонки.length) return e.Колонки;
+    const t = tabularDef(e.ТабличнаяЧасть);
+    return (t ? t.реквизиты : []).map(р => ({ Реквизит: р.имя, Заголовок: '', Видимость: true, ТолькоПросмотр: false, Ширина: 0 }));
+  }
+  function ensureCols(e) { if (!e.Колонки || !e.Колонки.length) e.Колонки = colsOf(e); return e.Колонки; }
+  function colType(e, к) {
+    const t = tabularDef(e.ТабличнаяЧасть);
+    const р = t && t.реквизиты.find(x => x.имя === к.Реквизит);
+    return (р && р.тип) || 'Строка';
+  }
+  function colTitle(e, к) {
+    if (к.Заголовок) return к.Заголовок;
+    const t = tabularDef(e.ТабличнаяЧасть);
+    const р = t && t.реквизиты.find(x => x.имя === к.Реквизит);
+    return (р && р.синоним) || к.Реквизит;
+  }
   function elTitle(e) {
     if (e.Тип === 'Поле') return e.Заголовок || e.Реквизит;
     if (e.Тип === 'Таблица') return e.Заголовок || e.ТабличнаяЧасть;
@@ -329,7 +393,7 @@ function html(info, formName, elements) {
 
   function scheduleSave() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => vscode.postMessage({ type: 'save', elements: els }), 250);
+    saveTimer = setTimeout(() => vscode.postMessage({ type: 'save', elements: els, props }), 250);
   }
 
   // контейнер, в который добавлять новый элемент данного типа (правила как в 1С:
@@ -361,19 +425,140 @@ function html(info, formName, elements) {
     return found;
   }
 
+  // --- контекстное меню дерева элементов (как в 1С: Добавить/Удалить/Свойства) ---
+  function ctxMenu(ev, пункты) {
+    ev.preventDefault(); ev.stopPropagation();
+    closeCtx();
+    const m = document.createElement('div');
+    m.className = 'ctx'; m.id = 'ctx';
+    for (const п of пункты) {
+      if (п === '-') { m.appendChild(document.createElement('hr')); continue; }
+      const d = document.createElement('div');
+      d.textContent = п[0];
+      d.onclick = e2 => { e2.stopPropagation(); closeCtx(); п[1](); };
+      m.appendChild(d);
+    }
+    m.style.left = ev.pageX + 'px'; m.style.top = ev.pageY + 'px';
+    document.body.appendChild(m);
+  }
+  function closeCtx() { const m = document.getElementById('ctx'); if (m) m.remove(); }
+  document.addEventListener('click', closeCtx);
+
+  function ctxMenuElement(ev, e) {
+    sel = e; render();
+    ctxMenu(ev, [
+      ['Добавить группу', () => addNew('g:Группа')],
+      ['Добавить страницы', () => addNew('g:Страницы')],
+      ['Добавить надпись', () => addNew('d:Надпись')],
+      '-',
+      ['Переместить вверх', () => moveSel(-1)],
+      ['Переместить вниз', () => moveSel(1)],
+      '-',
+      ['Удалить', delSel],
+      '-',
+      ['Свойства', () => { postSelection(); vscode.postMessage({ type: 'focusProps' }); }]
+    ]);
+  }
+  function ctxMenuColumn(ev, таблица, i) {
+    const кол = ensureCols(таблица)[i];
+    sel = { __кол: true, таблица, колонка: кол }; render();
+    ctxMenu(ev, [
+      ['Переместить вверх', () => moveSel(-1)],
+      ['Переместить вниз', () => moveSel(1)],
+      '-',
+      [кол.Видимость === false ? 'Показать колонку' : 'Скрыть колонку',
+        () => { кол.Видимость = кол.Видимость === false; scheduleSave(); render(); }],
+      ['Удалить', delSel],
+      '-',
+      ['Свойства', () => { postSelection(); vscode.postMessage({ type: 'focusProps' }); }]
+    ]);
+  }
+
+  // перемещение/удаление выбранного (элемент или колонка таблицы)
+  function moveSel(dir) {
+    if (!sel) return;
+    if (sel.__кол) {
+      const arr = ensureCols(sel.таблица);
+      const i = arr.indexOf(sel.колонка), j = i + dir;
+      if (i < 0 || j < 0 || j >= arr.length) return;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      scheduleSave(); render(); return;
+    }
+    const p = findParent(sel);
+    if (!p) return;
+    const j = p.i + dir;
+    if (j < 0 || j >= p.arr.length) return;
+    [p.arr[p.i], p.arr[j]] = [p.arr[j], p.arr[p.i]];
+    scheduleSave(); render();
+  }
+  function delSel() {
+    if (!sel) return;
+    if (sel.__кол) {
+      const arr = ensureCols(sel.таблица);
+      const i = arr.indexOf(sel.колонка);
+      if (i >= 0) arr.splice(i, 1);
+      sel = sel.таблица;
+      scheduleSave(); render(); return;
+    }
+    const p = findParent(sel);
+    if (!p) return;
+    p.arr.splice(p.i, 1);
+    sel = p.arr[Math.min(p.i, p.arr.length - 1)] || ownerOf(p.arr) || els[0] || null;
+    scheduleSave(); render();
+  }
+
   function render() {
-    // --- дерево элементов ---
+    // --- дерево элементов (как в 1С: Форма -> Командная панель -> элементы) ---
     const list = document.getElementById('list');
     list.innerHTML = '';
     const rowByEl = new Map();
-    walk(els, (e, depth) => {
+    treeRows = [];
+    const mkRow = (depth, ico, label, выбран) => {
       const div = document.createElement('div');
-      div.className = 'el' + (e === sel ? ' sel' : '');
+      div.className = 'el' + (выбран ? ' sel' : '');
       div.style.paddingLeft = (8 + depth * 16) + 'px';
+      div.innerHTML = '<span class="ico">' + ico + '</span><span>' + label + '</span>';
+      list.appendChild(div);
+      return div;
+    };
+
+    // корень «Форма»
+    const formDiv = mkRow(0, '📃', 'Форма', sel === FORM_NODE);
+    formDiv.onclick = () => { sel = FORM_NODE; render(); };
+    formDiv.oncontextmenu = ev => ctxMenu(ev, [['Свойства', () => { sel = FORM_NODE; render(); vscode.postMessage({ type: 'focusProps' }); }]]);
+    treeRows.push({ div: formDiv, label: () => 'Форма' });
+
+    // «Командная панель»: все кнопки формы (как в 1С)
+    const кнопкиДерева = [];
+    walk(els, e => { if (e.Тип === 'Кнопка') кнопкиДерева.push(e); });
+    const кпDiv = mkRow(1, '🔔', 'Командная панель', sel === CMDBAR_NODE);
+    кпDiv.onclick = () => { sel = CMDBAR_NODE; render(); };
+    treeRows.push({ div: кпDiv, label: () => 'Командная панель' });
+    for (const e of кнопкиДерева) {
+      const div = mkRow(2, ICONS['Кнопка'], elTitle(e), e === sel);
       div.draggable = true;
-      div.innerHTML = '<span class="ico">' + (ICONS[e.Тип] || '•') + '</span><span>' + elTitle(e) + '</span>';
       div.onclick = () => { sel = e; render(); };
-      div.ondragstart = ev => { dragged = e; ev.dataTransfer.setData('text/plain', 'x'); };
+      div.ondragstart = ev => { dragged = e; attrDrag = null; ev.dataTransfer.setData('text/plain', 'x'); };
+      div.ondragover = ev => { if (dragged && dragged.Тип === 'Кнопка' && dragged !== e || attrDrag && attrDrag.kind === 'cmd') { ev.preventDefault(); div.classList.add('drag-over'); } };
+      div.ondragleave = () => div.classList.remove('drag-over');
+      div.ondrop = ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        div.classList.remove('drag-over');
+        if (attrDrag) { const p = findParent(e); if (p) dropAttr(attrDrag, { arr: p.arr, at: p.i }); return; }
+        moveElement(e, 'before');
+      };
+      div.oncontextmenu = ev => ctxMenuElement(ev, e);
+      treeRows.push({ div, label: () => elTitle(e) });
+      rowByEl.set(e, div);
+    }
+
+    // элементы формы (кнопки показаны выше, в командной панели)
+    walk(els, (e, depth) => {
+      if (e.Тип === 'Кнопка') return;
+      const div = mkRow(depth + 1, ICONS[e.Тип] || '•', elTitle(e), e === sel);
+      div.draggable = true;
+      div.onclick = () => { sel = e; render(); };
+      div.ondragstart = ev => { dragged = e; attrDrag = null; ev.dataTransfer.setData('text/plain', 'x'); };
       div.ondragover = ev => {
         ev.preventDefault();
         div.classList.add(isCont(e) && dragged !== e ? 'drag-into' : 'drag-over');
@@ -389,8 +574,20 @@ function html(info, formName, elements) {
         }
         moveElement(e, isCont(e) ? 'into' : 'before');
       };
-      list.appendChild(div);
+      div.oncontextmenu = ev => ctxMenuElement(ev, e);
+      treeRows.push({ div, label: () => elTitle(e) });
       rowByEl.set(e, div);
+
+      // колонки таблицы — дочерние узлы (как ПолеКолонки в 1С)
+      if (e.Тип === 'Таблица') {
+        colsOf(e).forEach((к, i) => {
+          const кDiv = mkRow(depth + 2, '▥', colTitle(e, к), !!(sel && sel.__кол && sel.колонка === к));
+          if (к.Видимость === false) кDiv.classList.add('dim');
+          кDiv.onclick = ev => { ev.stopPropagation(); const кол = ensureCols(e)[i]; sel = { __кол: true, таблица: e, колонка: кол }; render(); };
+          кDiv.oncontextmenu = ev => ctxMenuColumn(ev, e, i);
+          treeRows.push({ div: кDiv, label: () => colTitle(e, к) });
+        });
+      }
     });
     list.ondragover = ev => { if (attrDrag) { ev.preventDefault(); list.classList.add('drop-ok'); } };
     list.ondragleave = () => list.classList.remove('drop-ok');
@@ -406,7 +603,7 @@ function html(info, formName, elements) {
     pv.innerHTML = '';
     const title = document.createElement('div');
     title.className = 'title';
-    title.textContent = info.синоним + ' (' + data.formName + ')';
+    title.textContent = (props.Заголовок || info.синоним) + ' (' + data.formName + ')';
     pv.appendChild(title);
 
     // кнопки (с любого уровня) — в командную панель
@@ -417,7 +614,7 @@ function html(info, formName, elements) {
       bar.className = 'cmdbar';
       for (const e of buttons) {
         const b = document.createElement('button');
-        b.className = 'btn1c' + (e.Действие === 'ЗаписатьИЗакрыть' ? ' primary' : '') + (e === sel ? ' sel-el' : '')
+        b.className = 'btn1c' + ((e.Действие === 'ЗаписатьИЗакрыть' || e.КнопкаПоУмолчанию) ? ' primary' : '') + (e === sel ? ' sel-el' : '')
           + (e.Видимость === false ? ' invis' : '') + (e.Доступность === false ? ' dis' : '');
         b.textContent = elTitle(e);
         b.onclick = () => { sel = e; render(); };
@@ -545,17 +742,32 @@ function html(info, formName, elements) {
           acceptAttrBefore(row, e);
           dom.appendChild(row);
         } else if (e.Тип === 'Таблица') {
-          const t = tabularDef(e.ТабличнаяЧасть);
           const wrap = document.createElement('div');
           wrap.className = 'tbl1c' + (e === sel ? ' sel-el' : '')
             + (e.Видимость === false ? ' invis' : '');
+          const колонки = colsOf(e);
+          const видимыеКол = [];
+          колонки.forEach((к, i) => { if (к.Видимость !== false) видимыеКол.push(i); });
           let ths = '<th>N</th>';
-          for (const a of (t ? t.реквизиты : [])) ths += '<th>' + (a.синоним || a.имя) + '</th>';
-          const cols = (t ? t.реквизиты.length : 0) + 1;
+          for (const i of видимыеКол) {
+            const к = колонки[i];
+            const selCol = sel && sel.__кол && sel.колонка === к;
+            ths += '<th data-col="' + i + '"' + (selCol ? ' class="sel-col"' : '')
+                + (к.Ширина > 0 ? ' style="width:' + к.Ширина + 'px"' : '') + '>'
+                + colTitle(e, к) + '</th>';
+          }
+          const cols = видимыеКол.length + 1;
           let rows = '';
           for (let r = 1; r <= 2; r++) rows += '<tr>' + '<td></td>'.repeat(cols) + '</tr>';
           wrap.innerHTML = '<div class="cap">' + elTitle(e) + '</div><table><tr>' + ths + '</tr>' + rows + '</table>';
           wrap.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          for (const th of wrap.querySelectorAll('th[data-col]'))
+            th.onclick = ev => {       // клик по заголовку — выделить колонку (как в 1С)
+              ev.stopPropagation();
+              const кол = ensureCols(e)[+th.dataset.col];
+              sel = { __кол: true, таблица: e, колонка: кол };
+              render();
+            };
           dragSource(wrap, e);
           acceptAttrBefore(wrap, e);
           dom.appendChild(wrap);
@@ -715,15 +927,14 @@ function html(info, formName, elements) {
 
   // лёгкая перерисовка (не трогая фокус в свойствах) — обновить подписи
   function renderSoft() {
-    const list = document.getElementById('list');
-    const flat = [];
-    walk(els, e => flat.push(e));
-    [...list.children].forEach((div, i) => { if (flat[i]) div.children[1].textContent = elTitle(flat[i]); });
+    for (const r of treeRows) r.div.children[1].textContent = r.label();
     renderPreviewOnly();
   }
   // обновить только тексты в превью (без перерисовки — не трогает фокус в панели свойств)
   function renderPreviewOnly() {
     const pv = document.getElementById('preview');
+    const t0 = pv.querySelector('.title');
+    if (t0) t0.textContent = (props.Заголовок || info.синоним) + ' (' + data.formName + ')';
     // поля на неактивных вкладках не отрисованы — обновляем по совпадению количества;
     // подпись ищем внутри строки поля (при ПоложениеЗаголовка=Нет её нет)
     const visible = [];
@@ -765,8 +976,9 @@ function html(info, formName, elements) {
     }
   }
 
-  document.getElementById('btnAdd').onclick = () => {
-    const v = document.getElementById('addSelect').value;
+  document.getElementById('btnAdd').onclick = () =>
+    addNew(document.getElementById('addSelect').value);
+  function addNew(v) {
     if (!v) return;
     const [k, name] = [v.slice(0, 1), v.slice(2)];
     let нов;
@@ -794,7 +1006,7 @@ function html(info, formName, elements) {
     if (target.at !== undefined) target.arr.splice(target.at, 0, нов);
     else target.arr.push(нов);
     sel = нов; scheduleSave(); render();
-  };
+  }
   document.getElementById('btnAxaml').onclick = () => {
     vscode.postMessage({ type: 'exportAxaml', elements: els });
   };
@@ -803,28 +1015,9 @@ function html(info, formName, elements) {
   };
   document.getElementById('atabAttrs').onclick = () => { attrTab = 'attrs'; render(); };
   document.getElementById('atabCmds').onclick = () => { attrTab = 'cmds'; render(); };
-  document.getElementById('btnDel').onclick = () => {
-    if (!sel) return;
-    const p = findParent(sel);
-    if (!p) return;
-    p.arr.splice(p.i, 1);
-    sel = p.arr[Math.min(p.i, p.arr.length - 1)] || ownerOf(p.arr) || els[0] || null;
-    scheduleSave(); render();
-  };
-  document.getElementById('btnUp').onclick = () => {
-    if (!sel) return;
-    const p = findParent(sel);
-    if (!p || p.i === 0) return;
-    [p.arr[p.i - 1], p.arr[p.i]] = [p.arr[p.i], p.arr[p.i - 1]];
-    scheduleSave(); render();
-  };
-  document.getElementById('btnDown').onclick = () => {
-    if (!sel) return;
-    const p = findParent(sel);
-    if (!p || p.i >= p.arr.length - 1) return;
-    [p.arr[p.i + 1], p.arr[p.i]] = [p.arr[p.i], p.arr[p.i + 1]];
-    scheduleSave(); render();
-  };
+  document.getElementById('btnDel').onclick = delSel;
+  document.getElementById('btnUp').onclick = () => moveSel(-1);
+  document.getElementById('btnDown').onclick = () => moveSel(1);
 
   render();
 </script>
