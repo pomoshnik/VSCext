@@ -219,10 +219,42 @@ public class База : IDisposable, IИсточникЗапросов
 
     // --- Скомпилированная конфигурация из базы (_Сборки) --------------------
 
+    /// <summary>Корень проекта (устанавливается при запуске из папки проекта — F5 из конфигуратора).</summary>
+    public static string? КореньПроекта { get; set; }
+
     static readonly HashSet<string> _загруженныеСборки = new();
 
     void ЗагрузитьКонфигурацию(string файл)
     {
+        // Режим отладки (F5 из папки проекта): конфигурация в базе могла быть
+        // скомпилирована из ДРУГОЙ копии исходников — тогда пути и контрольные суммы
+        // в её PDB не совпадут с файлами на этой машине и точки останова не сработают.
+        // Поэтому под отладчиком грузим свежесобранную BusinessLogic.dll с диска
+        // (preLaunchTask собирает её перед запуском) — точки совпадают всегда.
+        if (System.Diagnostics.Debugger.IsAttached && КореньПроекта is { } корень)
+        {
+            var бин = Path.Combine(корень, "src", "BusinessLogic", "bin", "Debug");
+            var файлDll = Directory.Exists(бин)
+                ? Directory.GetFiles(бин, "BusinessLogic.dll", SearchOption.AllDirectories)
+                    .OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault()
+                : null;
+            if (файлDll != null)
+            {
+                lock (_загруженныеСборки)
+                {
+                    var ключДиск = "диск|" + файлDll;
+                    if (_загруженныеСборки.Contains(ключДиск)) return;
+                    var контекстДиск = new System.Runtime.Loader.AssemblyLoadContext("Конфигурация (отладка): " + файлDll);
+                    РеестрМодулей.Подключить(контекстДиск.LoadFromAssemblyPath(файлDll));
+                    _загруженныеСборки.Add(ключДиск);
+                }
+                Console.WriteLine($"[Конфигурация] ОТЛАДКА: сборка загружена с диска — {файлDll}");
+                Console.WriteLine("[Конфигурация] Точки останова ставьте в src/BusinessLogic/Modules этой папки.");
+                return;
+            }
+            Console.WriteLine($"[Конфигурация] ОТЛАДКА: {бин} не найден — сборка будет загружена из базы; " +
+                              "если точки останова не сработают, опубликуйте конфигурацию из этой папки.");
+        }
         byte[]? dll = null, pdb = null;
         try
         {
@@ -255,6 +287,8 @@ public class База : IDisposable, IИсточникЗапросов
                 : контекст.LoadFromStream(потокDll, new MemoryStream(pdb));
             РеестрМодулей.Подключить(сборка);   // OneC.Core разрешается в копию клиента (общая статика)
             _загруженныеСборки.Add(ключ);
+            Console.WriteLine($"[Конфигурация] Сборка загружена из базы (_Сборки): {dll.Length / 1024} КБ" +
+                              (pdb != null ? " + символы" : ", БЕЗ символов"));
         }
     }
 

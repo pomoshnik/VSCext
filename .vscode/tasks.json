@@ -14,6 +14,24 @@
       "problemMatcher": "$msCompile"
     },
     {
+      "label": "build-logic",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/src/BusinessLogic/BusinessLogic.csproj",
+        "-v",
+        "q"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "build-debug",
+      "dependsOn": ["build-client", "build-logic"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
       "label": "build-publisher",
       "command": "dotnet",
       "type": "process",

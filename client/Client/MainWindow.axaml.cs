@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     public MainWindow(string кореньПроекта) : this()
     {
         _корень = кореньПроекта;
+        База.КореньПроекта = _корень;   // для отладки: загрузка конфигурации с диска (см. База.ЗагрузитьКонфигурацию)
         var файлБД = Path.Combine(_корень, "data", "app.db");
         var каталогМетаданных = Path.Combine(_корень, "metadata");
 
