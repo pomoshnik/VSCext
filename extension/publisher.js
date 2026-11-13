@@ -303,7 +303,7 @@ async function publish(model, rootPath, extensionDir) {
   if (genFile) {
     await new Promise((resolve, reject) => {
       require('child_process').execFile(
-        'dotnet', ['build', logicDir, '-c', 'Release', '--nologo', '-v', 'q'],
+        'dotnet', ['build', logicDir, '-c', 'Debug', '--nologo', '-v', 'q'],
         { cwd: rootPath, timeout: 300000, maxBuffer: 16 * 1024 * 1024 },
         (err, stdout, stderr) => {
           if (!err) return resolve();
@@ -323,7 +323,7 @@ async function publish(model, rootPath, extensionDir) {
       }
       return null;
     };
-    const dllPath = найтиDll(path.join(logicDir, 'bin', 'Release'));
+    const dllPath = найтиDll(path.join(logicDir, 'bin', 'Debug'));
     if (!dllPath) { db.close(); throw new Error('BusinessLogic.dll не найдена после сборки.'); }
     db.run('CREATE TABLE IF NOT EXISTS "_Сборки" ("Имя" TEXT PRIMARY KEY, "Данные" BLOB)');
     db.run('DELETE FROM "_Сборки"');

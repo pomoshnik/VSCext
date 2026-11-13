@@ -335,7 +335,7 @@ if (Directory.Exists(каталогЛогики))
     // -----------------------------------------------------------------------
     Console.WriteLine("Сборка конфигурации (dotnet build src/BusinessLogic)...");
     var процесс = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
-        "dotnet", $"build \"{каталогЛогики}\" -c Release --nologo -v q")
+        "dotnet", $"build \"{каталогЛогики}\" -c Debug --nologo -v q")
     { RedirectStandardOutput = true, RedirectStandardError = true })!;
     var вывод = процесс.StandardOutput.ReadToEnd() + процесс.StandardError.ReadToEnd();
     процесс.WaitForExit();
@@ -348,7 +348,7 @@ if (Directory.Exists(каталогЛогики))
         Environment.Exit(1);
     }
 
-    var dll = Directory.GetFiles(Path.Combine(каталогЛогики, "bin", "Release"), "BusinessLogic.dll", SearchOption.AllDirectories)
+    var dll = Directory.GetFiles(Path.Combine(каталогЛогики, "bin", "Debug"), "BusinessLogic.dll", SearchOption.AllDirectories)
         .OrderByDescending(File.GetLastWriteTimeUtc).First();
     var pdb = Path.ChangeExtension(dll, ".pdb");
 
