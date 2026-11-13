@@ -64,6 +64,10 @@ function html(info, formName, elements) {
   .attr-row .ico { width: 14px; flex: none; text-align: center; }
   .attr-row.child { padding-left: 34px; cursor: default; }
   .attr-row .tgl { width: 12px; flex: none; cursor: pointer; color: var(--vscode-descriptionForeground); }
+  .atabs { display: flex; gap: 4px; align-items: center; }
+  .atab { cursor: pointer; padding: 1px 10px; border: 1px solid var(--vscode-panel-border); border-radius: 3px;
+          color: var(--vscode-descriptionForeground); font-weight: 400; }
+  .atab.on { background: var(--vscode-editor-background); color: var(--vscode-foreground); font-weight: 600; }
   .drop-ok { outline: 2px dashed #ff8c00; outline-offset: -2px; }
 
   .hdr { padding: 5px 8px; font-weight: 600; background: var(--vscode-sideBarSectionHeader-background);
@@ -99,6 +103,10 @@ function html(info, formName, elements) {
                   padding: 3px 7px; border-radius: 0 2px 2px 0; color: #555; pointer-events: none; }
   .fld input.withbtn { border-radius: 2px 0 0 2px; }
   .fld input[type=checkbox] { flex: none; width: 16px; height: 16px; pointer-events: none; }
+  .fld.top-label { flex-direction: column; align-items: stretch; }
+  .fld.top-label label { width: auto; margin-bottom: 2px; }
+  .fld.invis, .tbl1c.invis, .grp1c.invis, .deco1c.invis, .btn1c.invis { opacity: .35; }
+  .fld.dis input, .btn1c.dis { filter: grayscale(1); opacity: .7; }
   .tbl1c { margin: 8px 0; cursor: pointer; }
   .tbl1c .cap { font-weight: 600; color: #444; margin-bottom: 3px; }
   .tbl1c table { border-collapse: collapse; width: 100%; }
@@ -156,10 +164,10 @@ function html(info, formName, elements) {
   <div class="top">
     <div class="col-list"><div class="hdr">Элементы формы</div><div id="list"></div>
       <div class="hint">Перетащите элемент НА группу/страницу, чтобы вложить; МЕЖДУ — чтобы изменить порядок.</div></div>
-    <div class="col-attrs"><div class="hdr">Реквизиты</div>
-      <div class="attr-head"><span class="tgl"></span><span class="ico"></span><span class="nm">Реквизит</span><span class="tp">Тип</span></div>
+    <div class="col-attrs"><div class="hdr atabs"><span class="atab on" id="atabAttrs">Реквизиты</span><span class="atab" id="atabCmds">Команды</span></div>
+      <div class="attr-head"><span class="tgl"></span><span class="ico"></span><span class="nm" id="attrHeadNm">Реквизит</span><span class="tp" id="attrHeadTp">Тип</span></div>
       <div id="attrs"></div>
-      <div class="hint">Перетащите реквизит или табличную часть на форму либо в дерево элементов.</div></div>
+      <div class="hint" id="attrHint">Перетащите реквизит или табличную часть на форму либо в дерево элементов.</div></div>
   </div>
   <div class="col-prev"><div class="form1c" id="preview"></div></div>
   <div class="bottomtabs"><div class="btab on">Форма</div><div class="btab" id="tabModule" title="Открыть модуль объекта (C#)">Модуль</div></div>
@@ -170,20 +178,36 @@ function html(info, formName, elements) {
   let els = data.elements;          // корневой массив (дерево: контейнеры имеют .Элементы)
   let sel = els.length ? els[0] : null;  // выбранный ЭЛЕМЕНТ (ссылка на объект)
   let dragged = null;
-  let attrDrag = null;              // перетаскиваемый реквизит/ТЧ из панели «Реквизиты»
+  let attrDrag = null;              // перетаскиваемый реквизит/ТЧ/команда из панели
+  let attrTab = 'attrs';            // активная вкладка панели: 'attrs' | 'cmds'
   let saveTimer = null;
   const expandedT = new Set();      // раскрытые ТЧ в панели реквизитов
   const activePages = new Map();    // элемент «Страницы» -> активная вкладка (индекс)
 
   const ICONS = { 'Поле': '▭', 'Таблица': '▦', 'Кнопка': '🔘', 'Группа': '▣', 'Страницы': '🗂', 'Страница': '📄', 'Декорация': '𝐓' };
   const STD_ACTIONS = ['ЗаписатьИЗакрыть', 'Отмена'];
+  const CMD_TITLES = { 'ЗаписатьИЗакрыть': 'Записать и закрыть', 'Отмена': 'Отмена' };
   const CONTAINERS = ['Группа', 'Страницы', 'Страница'];
   // события по типам элементов (обработчик — публичный метод модуля объекта на C#)
   const EVENTS = { 'Поле': ['ПриИзменении', 'ПриВходе', 'ПриВыходе'], 'Таблица': ['ПриИзменении'] };
 
   // Выделенный элемент показывается в палитре свойств (правая панель VS Code)
   function postSelection() {
-    vscode.postMessage({ type: 'elementSelected', element: sel ? JSON.parse(JSON.stringify(sel)) : null });
+    let клон = null;
+    if (sel) {
+      клон = JSON.parse(JSON.stringify(sel));
+      // служебные поля для палитры свойств (как в 1С): ПутьКДанным, Вид, Тип значения
+      if (sel.Тип === 'Поле') {
+        клон.ПутьКДанным = 'Объект.' + (sel.Реквизит || '');
+        const d = fieldDef(sel.Реквизит);
+        const т = (d && d.тип) || 'Строка';
+        клон.ТипЗначения = т;
+        клон.Вид = т === 'Булево' ? 'Поле флажка' : т === 'Дата' ? 'Поле календаря'
+                 : т.includes('Ссылка') ? 'Поле выбора' : 'Поле ввода';
+      }
+      if (sel.Тип === 'Таблица') клон.ПутьКДанным = 'Объект.' + (sel.ТабличнаяЧасть || '');
+    }
+    vscode.postMessage({ type: 'elementSelected', element: клон });
   }
 
   // Правки из палитры свойств
@@ -200,7 +224,11 @@ function html(info, formName, elements) {
     if (m.field === 'Заголовок') { sel.Заголовок = m.value; scheduleSave(); renderSoft(); return; }
     if (m.field === 'ТолькоПросмотр') { sel.ТолькоПросмотр = m.value; scheduleSave(); render(); return; }
     if (m.field === 'Группировка') { sel.Группировка = m.value; scheduleSave(); render(); return; }
-    if (m.field === 'Действие') { sel.Действие = m.value; scheduleSave(); return; }
+    if (m.field === 'Действие') { sel.Действие = m.value; scheduleSave(); render(); return; }
+    if (m.field === 'Имя') { sel.Имя = m.value; scheduleSave(); return; }
+    if (['Видимость', 'Доступность', 'ПоложениеЗаголовка', 'МногострочныйРежим', 'РежимПароля'].includes(m.field)) {
+      sel[m.field] = m.value; scheduleSave(); render(); return;
+    }
   });
   const isCont = e => CONTAINERS.includes(e.Тип);
   const kids = e => (e.Элементы || (e.Элементы = []));
@@ -243,17 +271,44 @@ function html(info, formName, elements) {
     return false;
   }
 
+  // перемещение существующего элемента (из дерева или из превью);
+  // e — целевой элемент, mode: 'before' (перед ним) | 'into' (внутрь контейнера)
+  function moveElement(e, mode) {
+    if (!dragged || dragged === e || isAncestor(dragged, e)) return;
+    const from = findParent(dragged);
+    if (!from) return;
+    if (mode === 'into') {
+      if (dragged.Тип === 'Страница' && e.Тип !== 'Страницы') return;
+      if (e.Тип === 'Страницы' && dragged.Тип !== 'Страница') return;
+      from.arr.splice(from.i, 1);
+      kids(e).push(dragged);
+    } else {
+      const to = findParent(e);
+      if (!to) return;
+      const owner = ownerOf(to.arr);
+      if (dragged.Тип === 'Страница' && (!owner || owner.Тип !== 'Страницы')) return;
+      if (owner && owner.Тип === 'Страницы' && dragged.Тип !== 'Страница') return;
+      from.arr.splice(from.i, 1);
+      const to2 = findParent(e); // индексы могли сдвинуться
+      to2.arr.splice(to2.i, 0, dragged);
+    }
+    sel = dragged; dragged = null; scheduleSave(); render();
+  }
+
   // есть ли уже элемент под этот реквизит/ТЧ (как в 1С — поле на форме одно)
   function existingFor(a) {
     let found = null;
     walk(els, e => {
       if (a.kind === 'field' && e.Тип === 'Поле' && e.Реквизит === a.name) found = e;
       if (a.kind === 'table' && e.Тип === 'Таблица' && e.ТабличнаяЧасть === a.name) found = e;
+      if (a.kind === 'cmd' && e.Тип === 'Кнопка' && e.Действие === a.name) found = e;
     });
     return found;
   }
 
   function makeFromAttr(a) {
+    if (a.kind === 'cmd')
+      return { Тип: 'Кнопка', Действие: a.name, Заголовок: CMD_TITLES[a.name] || a.name };
     if (a.kind === 'table') {
       const t = tabularDef(a.name);
       return { Тип: 'Таблица', ТабличнаяЧасть: a.name, Заголовок: (t && t.синоним) || a.name };
@@ -332,27 +387,7 @@ function html(info, formName, elements) {
           else { const p = findParent(e); if (p) dropAttr(attrDrag, { arr: p.arr, at: p.i }); }
           return;
         }
-        if (!dragged || dragged === e || isAncestor(dragged, e)) return;
-        const from = findParent(dragged);
-        if (!from) return;
-        if (isCont(e)) {
-          // вложить: Страница — только в Страницы; в Страницы — только Страница
-          if (dragged.Тип === 'Страница' && e.Тип !== 'Страницы') return;
-          if (e.Тип === 'Страницы' && dragged.Тип !== 'Страница') return;
-          from.arr.splice(from.i, 1);
-          kids(e).push(dragged);
-        } else {
-          // перед целевым элементом (в его родителе)
-          const to = findParent(e);
-          if (!to) return;
-          const owner = ownerOf(to.arr);
-          if (dragged.Тип === 'Страница' && (!owner || owner.Тип !== 'Страницы')) return;
-          if (owner && owner.Тип === 'Страницы' && dragged.Тип !== 'Страница') return;
-          from.arr.splice(from.i, 1);
-          const to2 = findParent(e); // индексы могли сдвинуться
-          to2.arr.splice(to2.i, 0, dragged);
-        }
-        sel = dragged; dragged = null; scheduleSave(); render();
+        moveElement(e, isCont(e) ? 'into' : 'before');
       };
       list.appendChild(div);
       rowByEl.set(e, div);
@@ -382,9 +417,12 @@ function html(info, formName, elements) {
       bar.className = 'cmdbar';
       for (const e of buttons) {
         const b = document.createElement('button');
-        b.className = 'btn1c' + (e.Действие === 'ЗаписатьИЗакрыть' ? ' primary' : '') + (e === sel ? ' sel-el' : '');
+        b.className = 'btn1c' + (e.Действие === 'ЗаписатьИЗакрыть' ? ' primary' : '') + (e === sel ? ' sel-el' : '')
+          + (e.Видимость === false ? ' invis' : '') + (e.Доступность === false ? ' dis' : '');
         b.textContent = elTitle(e);
         b.onclick = () => { sel = e; render(); };
+        dragSource(b, e);
+        acceptAttrBefore(b, e);
         bar.appendChild(b);
       }
       pv.appendChild(bar);
@@ -394,45 +432,68 @@ function html(info, formName, elements) {
     body.className = 'body';
     renderInto(els, body);
     pv.appendChild(body);
-    pv.ondragover = ev => { if (attrDrag) { ev.preventDefault(); pv.classList.add('drop-ok'); } };
+    pv.ondragover = ev => { if (attrDrag || dragged) { ev.preventDefault(); pv.classList.add('drop-ok'); } };
     pv.ondragleave = () => pv.classList.remove('drop-ok');
     pv.ondrop = ev => {
       pv.classList.remove('drop-ok');
-      if (!attrDrag || ev.defaultPrevented) return;
-      ev.preventDefault();
-      dropAttr(attrDrag, { arr: els });
+      if (ev.defaultPrevented) return;
+      if (attrDrag) { ev.preventDefault(); dropAttr(attrDrag, { arr: els }); return; }
+      if (dragged && dragged.Тип !== 'Страница') {   // элемент — в конец формы
+        ev.preventDefault();
+        const from = findParent(dragged);
+        if (!from) return;
+        from.arr.splice(from.i, 1);
+        els.push(dragged);
+        sel = dragged; dragged = null; scheduleSave(); render();
+      }
     };
 
-    // приём реквизита на элемент превью: вставить перед ним
+    // приём на элемент превью: реквизит/команду — вставить перед ним,
+    // перетаскиваемый элемент формы — переставить перед ним
     function acceptAttrBefore(dom, e) {
+      const можно = () => attrDrag || (dragged && dragged !== e && !isAncestor(dragged, e));
       dom.addEventListener('dragover', ev => {
-        if (!attrDrag) return;
+        if (!можно()) return;
         ev.preventDefault(); ev.stopPropagation();
         dom.classList.add('drag-over');
       });
       dom.addEventListener('dragleave', () => dom.classList.remove('drag-over'));
       dom.addEventListener('drop', ev => {
         dom.classList.remove('drag-over');
-        if (!attrDrag) return;
+        if (!можно()) return;
         ev.preventDefault(); ev.stopPropagation();
-        const p = findParent(e);
-        if (p) dropAttr(attrDrag, { arr: p.arr, at: p.i });
+        if (attrDrag) {
+          const p = findParent(e);
+          if (p) dropAttr(attrDrag, { arr: p.arr, at: p.i });
+        } else moveElement(e, 'before');
       });
     }
-    // приём реквизита контейнером превью (группа/страница): внутрь
+    // приём контейнером превью (группа/страница): внутрь
     function acceptAttrInto(dom, e) {
+      const можно = () => attrDrag || (dragged && dragged !== e && !isAncestor(dragged, e));
       dom.addEventListener('dragover', ev => {
-        if (!attrDrag) return;
+        if (!можно()) return;
         ev.preventDefault(); ev.stopPropagation();
         dom.classList.add('drop-ok');
       });
       dom.addEventListener('dragleave', () => dom.classList.remove('drop-ok'));
       dom.addEventListener('drop', ev => {
         dom.classList.remove('drop-ok');
-        if (!attrDrag) return;
+        if (!можно()) return;
         ev.preventDefault(); ev.stopPropagation();
-        dropAttr(attrDrag, { into: e });
+        if (attrDrag) dropAttr(attrDrag, { into: e });
+        else moveElement(e, 'into');
       });
+    }
+    // перетаскивание самого элемента из превью (перестановка, как в 1С)
+    function dragSource(dom, e) {
+      dom.draggable = true;
+      dom.addEventListener('dragstart', ev => {
+        ev.stopPropagation();
+        dragged = e; attrDrag = null;
+        ev.dataTransfer.setData('text/plain', 'x');
+      });
+      dom.addEventListener('dragend', () => { dragged = null; });
     }
 
     function renderInto(arr, dom) {
@@ -440,10 +501,14 @@ function html(info, formName, elements) {
         if (e.Тип === 'Кнопка') continue;
         if (e.Тип === 'Поле') {
           const row = document.createElement('div');
-          row.className = 'fld' + (e === sel ? ' sel-el' : '');
-          const lab = document.createElement('label');
-          lab.textContent = elTitle(e) + ':';
-          row.appendChild(lab);
+          row.className = 'fld' + (e === sel ? ' sel-el' : '')
+            + (e.Видимость === false ? ' invis' : '') + (e.Доступность === false ? ' dis' : '')
+            + (e.ПоложениеЗаголовка === 'Верх' ? ' top-label' : '');
+          if (e.ПоложениеЗаголовка !== 'Нет') {
+            const lab = document.createElement('label');
+            lab.textContent = elTitle(e) + ':';
+            row.appendChild(lab);
+          }
           // как в 1С: вид поля определяется типом данных реквизита
           const def = fieldDef(e.Реквизит);
           const тип = (def && def.тип) || 'Строка';
@@ -471,15 +536,19 @@ function html(info, formName, elements) {
           } else {
             const inp = document.createElement('input');
             if (ro) inp.className = 'ro';
+            if (e.РежимПароля) inp.value = '●●●●●';
+            if (e.МногострочныйРежим) inp.style.height = '48px';
             row.appendChild(inp);
           }
           row.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          dragSource(row, e);
           acceptAttrBefore(row, e);
           dom.appendChild(row);
         } else if (e.Тип === 'Таблица') {
           const t = tabularDef(e.ТабличнаяЧасть);
           const wrap = document.createElement('div');
-          wrap.className = 'tbl1c' + (e === sel ? ' sel-el' : '');
+          wrap.className = 'tbl1c' + (e === sel ? ' sel-el' : '')
+            + (e.Видимость === false ? ' invis' : '');
           let ths = '<th>N</th>';
           for (const a of (t ? t.реквизиты : [])) ths += '<th>' + (a.синоним || a.имя) + '</th>';
           const cols = (t ? t.реквизиты.length : 0) + 1;
@@ -487,18 +556,24 @@ function html(info, formName, elements) {
           for (let r = 1; r <= 2; r++) rows += '<tr>' + '<td></td>'.repeat(cols) + '</tr>';
           wrap.innerHTML = '<div class="cap">' + elTitle(e) + '</div><table><tr>' + ths + '</tr>' + rows + '</table>';
           wrap.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          dragSource(wrap, e);
           acceptAttrBefore(wrap, e);
           dom.appendChild(wrap);
         } else if (e.Тип === 'Декорация') {
           const d = document.createElement('div');
-          d.className = 'deco1c' + (e === sel ? ' sel-el' : '');
+          d.className = 'deco1c' + (e === sel ? ' sel-el' : '')
+            + (e.Видимость === false ? ' invis' : '');
           d.textContent = e.Заголовок || 'Надпись';
           d.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          dragSource(d, e);
+          acceptAttrBefore(d, e);
           dom.appendChild(d);
         } else if (e.Тип === 'Группа') {
           const g = document.createElement('div');
-          g.className = 'grp1c' + (e === sel ? ' sel-el' : '');
+          g.className = 'grp1c' + (e === sel ? ' sel-el' : '')
+            + (e.Видимость === false ? ' invis' : '');
           g.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          dragSource(g, e);
           if (e.Заголовок) {
             const cap = document.createElement('div');
             cap.className = 'gcap'; cap.textContent = e.Заголовок;
@@ -531,6 +606,7 @@ function html(info, formName, elements) {
           if (pages[act]) { renderInto(pages[act].Элементы, page); acceptAttrInto(page, pages[act]); }
           p.appendChild(page);
           p.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          dragSource(p, e);
           dom.appendChild(p);
         } else if (e.Тип === 'Страница') {
           // страница вне «Страниц» — просто контейнер
@@ -547,10 +623,11 @@ function html(info, formName, elements) {
     postSelection();
 
     // --- выпадающий список добавления ---
-    const used = new Set(), usedT = new Set();
+    const used = new Set(), usedT = new Set(), usedC = new Set();
     walk(els, e => {
       if (e.Тип === 'Поле') used.add(e.Реквизит);
       if (e.Тип === 'Таблица') usedT.add(e.ТабличнаяЧасть);
+      if (e.Тип === 'Кнопка') usedC.add(e.Действие);
     });
     const addSel = document.getElementById('addSelect');
     const prev = addSel.value;
@@ -583,7 +660,8 @@ function html(info, formName, elements) {
     attrs.innerHTML = '';
     const addAttrRow = (a, тип, kind, child, icon) => {
       const row = document.createElement('div');
-      const isUsed = kind === 'field' ? used.has(a.имя) : kind === 'table' ? usedT.has(a.имя) : false;
+      const isUsed = kind === 'field' ? used.has(a.имя) : kind === 'table' ? usedT.has(a.имя)
+                   : kind === 'cmd' ? usedC.has(a.имя) : false;
       row.className = 'attr-row' + (isUsed ? ' used' : '') + (child ? ' child' : '');
       let tgl = '<span class="tgl"></span>';
       if (kind === 'table')
@@ -613,12 +691,25 @@ function html(info, formName, elements) {
       }
       attrs.appendChild(row);
     };
-    for (const f of info.стандартные) addAttrRow(f, f.тип || 'Строка', 'field', false, '•');
-    for (const f of info.реквизиты) addAttrRow(f, f.тип || 'Строка', 'field', false, '▭');
-    for (const t of info.таблицы) {
-      addAttrRow({ имя: t.имя }, '(Табличная часть)', 'table', false, '▦');
-      if (expandedT.has(t.имя))
-        for (const a of t.реквизиты) addAttrRow(a, a.тип || 'Строка', null, true, '▫');
+    // --- вкладки панели: Реквизиты | Команды (как в 1С) ---
+    document.getElementById('atabAttrs').className = 'atab' + (attrTab === 'attrs' ? ' on' : '');
+    document.getElementById('atabCmds').className = 'atab' + (attrTab === 'cmds' ? ' on' : '');
+    document.getElementById('attrHeadNm').textContent = attrTab === 'attrs' ? 'Реквизит' : 'Команда';
+    document.getElementById('attrHeadTp').textContent = attrTab === 'attrs' ? 'Тип' : 'Представление';
+    document.getElementById('attrHint').textContent = attrTab === 'attrs'
+      ? 'Перетащите реквизит или табличную часть на форму либо в дерево элементов.'
+      : 'Перетащите команду на форму — появится кнопка. Команды — публичные методы модуля объекта (C#); вкладка «Модуль» внизу открывает его.';
+    if (attrTab === 'attrs') {
+      for (const f of info.стандартные) addAttrRow(f, f.тип || 'Строка', 'field', false, '•');
+      for (const f of info.реквизиты) addAttrRow(f, f.тип || 'Строка', 'field', false, '▭');
+      for (const t of info.таблицы) {
+        addAttrRow({ имя: t.имя }, '(Табличная часть)', 'table', false, '▦');
+        if (expandedT.has(t.имя))
+          for (const a of t.реквизиты) addAttrRow(a, a.тип || 'Строка', null, true, '▫');
+      }
+    } else {
+      for (const и of STD_ACTIONS) addAttrRow({ имя: и }, CMD_TITLES[и] + ' (стандартная)', 'cmd', false, '🔘');
+      for (const к of (info.команды || [])) addAttrRow({ имя: к.имя }, '(метод модуля C#)', 'cmd', false, '⚙');
     }
   }
 
@@ -633,14 +724,15 @@ function html(info, formName, elements) {
   // обновить только тексты в превью (без перерисовки — не трогает фокус в панели свойств)
   function renderPreviewOnly() {
     const pv = document.getElementById('preview');
-    const labels = pv.querySelectorAll('.fld label');
-    const fields = [];
-    walk(els, e => { if (e.Тип === 'Поле') fields.push(e); });
-    // поля на неактивных вкладках не отрисованы — обновляем по совпадению количества
+    // поля на неактивных вкладках не отрисованы — обновляем по совпадению количества;
+    // подпись ищем внутри строки поля (при ПоложениеЗаголовка=Нет её нет)
     const visible = [];
     collectVisible(els, visible);
     const vf = visible.filter(e => e.Тип === 'Поле');
-    labels.forEach((lab, i) => { if (vf[i]) lab.textContent = elTitle(vf[i]) + ':'; });
+    pv.querySelectorAll('.fld').forEach((row, i) => {
+      const lab = row.querySelector('label');
+      if (lab && vf[i]) lab.textContent = elTitle(vf[i]) + ':';
+    });
     const btns = [];
     walk(els, e => { if (e.Тип === 'Кнопка') btns.push(e); });
     pv.querySelectorAll('.cmdbar .btn1c').forEach((b, i) => { if (btns[i]) b.textContent = elTitle(btns[i]); });
@@ -709,6 +801,8 @@ function html(info, formName, elements) {
   document.getElementById('tabModule').onclick = () => {
     vscode.postMessage({ type: 'openModule' });
   };
+  document.getElementById('atabAttrs').onclick = () => { attrTab = 'attrs'; render(); };
+  document.getElementById('atabCmds').onclick = () => { attrTab = 'cmds'; render(); };
   document.getElementById('btnDel').onclick = () => {
     if (!sel) return;
     const p = findParent(sel);
