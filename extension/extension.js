@@ -820,6 +820,22 @@ function objectInfoFor(provider, objNode) {
   };
 }
 
+// Открыть модуль объекта (создав из шаблона при необходимости)
+async function openObjectModule(provider, storage, objNode) {
+  const def = classDefById(objNode.classId);
+  if (!def || !storage.root) return;
+  const dir = path.join(storage.root, 'src', 'BusinessLogic', 'Modules');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, objNode.module || `${def.kind1c}.${objNode.name}.cs`);
+  if (!fs.existsSync(file)) fs.writeFileSync(file, moduleTemplate(def.kind1c, objNode.name), 'utf8');
+  if (objNode.module !== path.basename(file)) {
+    objNode.module = path.basename(file);
+    provider.refresh();
+  }
+  const док = await vscode.workspace.openTextDocument(file);
+  await vscode.window.showTextDocument(док);
+}
+
 // Открыть (при необходимости создать) обработчик события/команды в модуле объекта
 async function openHandlerInModule(provider, storage, objNode, method) {
   const def = classDefById(objNode.classId);
@@ -1099,6 +1115,10 @@ function cmdOpenForm(provider, treeView, storage, node) {
     }
     if (msg.type === 'elementSelected') {
       propsView.showElement(msg.element, panel, objNode, node.name);
+      return;
+    }
+    if (msg.type === 'openModule') {   // вкладка «Модуль» под превью — как в 1С
+      openObjectModule(provider, storage, objNode);
       return;
     }
     if (msg.type !== 'save') return;

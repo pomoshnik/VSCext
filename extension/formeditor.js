@@ -42,9 +42,29 @@ function html(info, formName, elements) {
     background: var(--vscode-button-secondaryBackground, #ddd); color: var(--vscode-button-secondaryForeground, #222);
     border: 1px solid var(--vscode-panel-border); padding: 3px 10px; cursor: pointer; }
   .toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground, #ccc); }
-  .cols { display: flex; flex: 1; min-height: 0; }
-  .col-list { width: 250px; flex: none; border-right: 1px solid var(--vscode-panel-border); overflow: auto; }
+  /* Макет как в редакторе форм 1С: сверху дерево элементов + реквизиты, снизу превью */
+  .top { display: flex; height: 42%; min-height: 140px; flex: none; border-bottom: 2px solid var(--vscode-panel-border); }
+  .col-list { flex: 1; min-width: 0; border-right: 1px solid var(--vscode-panel-border); overflow: auto; }
+  .col-attrs { flex: 1; min-width: 0; overflow: auto; }
   .col-prev { flex: 1; overflow: auto; background: #d6d9dd; padding: 14px; }
+  .bottomtabs { display: flex; gap: 2px; padding: 2px 8px 0; border-top: 1px solid var(--vscode-panel-border); flex: none; }
+  .btab { padding: 3px 14px; cursor: pointer; border: 1px solid var(--vscode-panel-border); border-bottom: none;
+          border-radius: 3px 3px 0 0; color: var(--vscode-descriptionForeground); }
+  .btab.on { background: var(--vscode-editor-background); color: var(--vscode-foreground); font-weight: 600; }
+
+  /* Панель реквизитов (как закладка «Реквизиты» в 1С) */
+  .attr-head { display: flex; font-weight: 600; color: var(--vscode-descriptionForeground);
+               border-bottom: 1px solid var(--vscode-panel-border); padding: 3px 8px; position: sticky; top: 26px;
+               background: var(--vscode-editor-background); }
+  .attr-row { display: flex; padding: 3px 8px; cursor: grab; border: 1px solid transparent; align-items: center; gap: 6px; }
+  .attr-row:hover { background: var(--vscode-list-hoverBackground); }
+  .attr-row.used { opacity: .45; }
+  .attr-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attr-row .tp { flex: 1; min-width: 0; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attr-row .ico { width: 14px; flex: none; text-align: center; }
+  .attr-row.child { padding-left: 34px; cursor: default; }
+  .attr-row .tgl { width: 12px; flex: none; cursor: pointer; color: var(--vscode-descriptionForeground); }
+  .drop-ok { outline: 2px dashed #ff8c00; outline-offset: -2px; }
 
   .hdr { padding: 5px 8px; font-weight: 600; background: var(--vscode-sideBarSectionHeader-background);
          border-bottom: 1px solid var(--vscode-panel-border); position: sticky; top: 0; }
@@ -133,12 +153,16 @@ function html(info, formName, elements) {
     <button id="btnDel" title="Удалить элемент">✕ Удалить</button>
     <button id="btnAxaml" title="Создать произвольную AXAML-форму по этой разметке (src/BusinessLogic/Forms)">Экспорт в AXAML</button>
   </div>
-  <div class="cols">
+  <div class="top">
     <div class="col-list"><div class="hdr">Элементы формы</div><div id="list"></div>
       <div class="hint">Перетащите элемент НА группу/страницу, чтобы вложить; МЕЖДУ — чтобы изменить порядок.</div></div>
-    <div class="col-prev"><div class="form1c" id="preview"></div></div>
-
+    <div class="col-attrs"><div class="hdr">Реквизиты</div>
+      <div class="attr-head"><span class="tgl"></span><span class="ico"></span><span class="nm">Реквизит</span><span class="tp">Тип</span></div>
+      <div id="attrs"></div>
+      <div class="hint">Перетащите реквизит или табличную часть на форму либо в дерево элементов.</div></div>
   </div>
+  <div class="col-prev"><div class="form1c" id="preview"></div></div>
+  <div class="bottomtabs"><div class="btab on">Форма</div><div class="btab" id="tabModule" title="Открыть модуль объекта (C#)">Модуль</div></div>
 <script>
   const vscode = acquireVsCodeApi();
   const data = ${data};
@@ -146,7 +170,9 @@ function html(info, formName, elements) {
   let els = data.elements;          // корневой массив (дерево: контейнеры имеют .Элементы)
   let sel = els.length ? els[0] : null;  // выбранный ЭЛЕМЕНТ (ссылка на объект)
   let dragged = null;
+  let attrDrag = null;              // перетаскиваемый реквизит/ТЧ из панели «Реквизиты»
   let saveTimer = null;
+  const expandedT = new Set();      // раскрытые ТЧ в панели реквизитов
   const activePages = new Map();    // элемент «Страницы» -> активная вкладка (индекс)
 
   const ICONS = { 'Поле': '▭', 'Таблица': '▦', 'Кнопка': '🔘', 'Группа': '▣', 'Страницы': '🗂', 'Страница': '📄', 'Декорация': '𝐓' };
@@ -217,6 +243,35 @@ function html(info, formName, elements) {
     return false;
   }
 
+  // есть ли уже элемент под этот реквизит/ТЧ (как в 1С — поле на форме одно)
+  function existingFor(a) {
+    let found = null;
+    walk(els, e => {
+      if (a.kind === 'field' && e.Тип === 'Поле' && e.Реквизит === a.name) found = e;
+      if (a.kind === 'table' && e.Тип === 'Таблица' && e.ТабличнаяЧасть === a.name) found = e;
+    });
+    return found;
+  }
+
+  function makeFromAttr(a) {
+    if (a.kind === 'table') {
+      const t = tabularDef(a.name);
+      return { Тип: 'Таблица', ТабличнаяЧасть: a.name, Заголовок: (t && t.синоним) || a.name };
+    }
+    const f = fieldDef(a.name);
+    return { Тип: 'Поле', Реквизит: a.name, Заголовок: (f && f.синоним) || a.name, ТолькоПросмотр: false };
+  }
+
+  // Бросок реквизита: target = {arr, at} | {into: контейнер}
+  function dropAttr(a, target) {
+    const существующий = existingFor(a);
+    if (существующий) { sel = существующий; attrDrag = null; render(); return; }  // дубль не создаём — выделяем
+    const нов = makeFromAttr(a);
+    if (target.into) kids(target.into).push(нов);
+    else target.arr.splice(target.at !== undefined ? target.at : target.arr.length, 0, нов);
+    sel = нов; attrDrag = null; scheduleSave(); render();
+  }
+
   function scheduleSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => vscode.postMessage({ type: 'save', elements: els }), 250);
@@ -272,6 +327,11 @@ function html(info, formName, elements) {
       div.ondrop = ev => {
         ev.preventDefault();
         div.classList.remove('drag-over', 'drag-into');
+        if (attrDrag) {   // реквизит из панели: на контейнер — внутрь, иначе перед элементом
+          if (isCont(e)) dropAttr(attrDrag, { into: e });
+          else { const p = findParent(e); if (p) dropAttr(attrDrag, { arr: p.arr, at: p.i }); }
+          return;
+        }
         if (!dragged || dragged === e || isAncestor(dragged, e)) return;
         const from = findParent(dragged);
         if (!from) return;
@@ -297,6 +357,14 @@ function html(info, formName, elements) {
       list.appendChild(div);
       rowByEl.set(e, div);
     });
+    list.ondragover = ev => { if (attrDrag) { ev.preventDefault(); list.classList.add('drop-ok'); } };
+    list.ondragleave = () => list.classList.remove('drop-ok');
+    list.ondrop = ev => {
+      list.classList.remove('drop-ok');
+      if (!attrDrag || ev.defaultPrevented) return;
+      ev.preventDefault();
+      dropAttr(attrDrag, { arr: els });
+    };
 
     // --- превью ---
     const pv = document.getElementById('preview');
@@ -326,6 +394,46 @@ function html(info, formName, elements) {
     body.className = 'body';
     renderInto(els, body);
     pv.appendChild(body);
+    pv.ondragover = ev => { if (attrDrag) { ev.preventDefault(); pv.classList.add('drop-ok'); } };
+    pv.ondragleave = () => pv.classList.remove('drop-ok');
+    pv.ondrop = ev => {
+      pv.classList.remove('drop-ok');
+      if (!attrDrag || ev.defaultPrevented) return;
+      ev.preventDefault();
+      dropAttr(attrDrag, { arr: els });
+    };
+
+    // приём реквизита на элемент превью: вставить перед ним
+    function acceptAttrBefore(dom, e) {
+      dom.addEventListener('dragover', ev => {
+        if (!attrDrag) return;
+        ev.preventDefault(); ev.stopPropagation();
+        dom.classList.add('drag-over');
+      });
+      dom.addEventListener('dragleave', () => dom.classList.remove('drag-over'));
+      dom.addEventListener('drop', ev => {
+        dom.classList.remove('drag-over');
+        if (!attrDrag) return;
+        ev.preventDefault(); ev.stopPropagation();
+        const p = findParent(e);
+        if (p) dropAttr(attrDrag, { arr: p.arr, at: p.i });
+      });
+    }
+    // приём реквизита контейнером превью (группа/страница): внутрь
+    function acceptAttrInto(dom, e) {
+      dom.addEventListener('dragover', ev => {
+        if (!attrDrag) return;
+        ev.preventDefault(); ev.stopPropagation();
+        dom.classList.add('drop-ok');
+      });
+      dom.addEventListener('dragleave', () => dom.classList.remove('drop-ok'));
+      dom.addEventListener('drop', ev => {
+        dom.classList.remove('drop-ok');
+        if (!attrDrag) return;
+        ev.preventDefault(); ev.stopPropagation();
+        dropAttr(attrDrag, { into: e });
+      });
+    }
 
     function renderInto(arr, dom) {
       for (const e of arr || []) {
@@ -366,6 +474,7 @@ function html(info, formName, elements) {
             row.appendChild(inp);
           }
           row.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          acceptAttrBefore(row, e);
           dom.appendChild(row);
         } else if (e.Тип === 'Таблица') {
           const t = tabularDef(e.ТабличнаяЧасть);
@@ -378,6 +487,7 @@ function html(info, formName, elements) {
           for (let r = 1; r <= 2; r++) rows += '<tr>' + '<td></td>'.repeat(cols) + '</tr>';
           wrap.innerHTML = '<div class="cap">' + elTitle(e) + '</div><table><tr>' + ths + '</tr>' + rows + '</table>';
           wrap.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          acceptAttrBefore(wrap, e);
           dom.appendChild(wrap);
         } else if (e.Тип === 'Декорация') {
           const d = document.createElement('div');
@@ -398,6 +508,7 @@ function html(info, formName, elements) {
           gb.className = 'gbody' + (e.Группировка === 'Горизонтальная' ? ' h' : '');
           renderInto(e.Элементы, gb);
           g.appendChild(gb);
+          acceptAttrInto(g, e);
           dom.appendChild(g);
         } else if (e.Тип === 'Страницы') {
           const p = document.createElement('div');
@@ -417,7 +528,7 @@ function html(info, formName, elements) {
           p.appendChild(tabs);
           const page = document.createElement('div');
           page.className = 'page';
-          if (pages[act]) renderInto(pages[act].Элементы, page);
+          if (pages[act]) { renderInto(pages[act].Элементы, page); acceptAttrInto(page, pages[act]); }
           p.appendChild(page);
           p.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
           dom.appendChild(p);
@@ -466,6 +577,49 @@ function html(info, formName, elements) {
     addSel.appendChild(og3);
     addSel.appendChild(og4);
     if ([...addSel.options].some(o => o.value === prev)) addSel.value = prev;
+
+    // --- панель «Реквизиты» (как закладка Реквизиты в 1С) ---
+    const attrs = document.getElementById('attrs');
+    attrs.innerHTML = '';
+    const addAttrRow = (a, тип, kind, child, icon) => {
+      const row = document.createElement('div');
+      const isUsed = kind === 'field' ? used.has(a.имя) : kind === 'table' ? usedT.has(a.имя) : false;
+      row.className = 'attr-row' + (isUsed ? ' used' : '') + (child ? ' child' : '');
+      let tgl = '<span class="tgl"></span>';
+      if (kind === 'table')
+        tgl = '<span class="tgl">' + (expandedT.has(a.имя) ? '▾' : '▸') + '</span>';
+      row.innerHTML = (child ? '' : tgl) +
+        '<span class="ico">' + icon + '</span>' +
+        '<span class="nm" title="' + a.имя + '">' + a.имя + '</span>' +
+        '<span class="tp">' + (тип || '') + '</span>';
+      if (kind) {
+        row.draggable = true;
+        row.ondragstart = ev => {
+          attrDrag = { kind, name: a.имя };
+          dragged = null;
+          ev.dataTransfer.setData('text/plain', a.имя);
+          ev.dataTransfer.effectAllowed = 'copy';
+        };
+        row.ondragend = () => { attrDrag = null; };
+        row.ondblclick = () => dropAttr({ kind, name: a.имя }, { arr: els });  // двойной клик = добавить в конец
+      }
+      if (kind === 'table') {
+        const t = row.querySelector('.tgl');
+        t.onclick = ev => {
+          ev.stopPropagation();
+          if (expandedT.has(a.имя)) expandedT.delete(a.имя); else expandedT.add(a.имя);
+          render();
+        };
+      }
+      attrs.appendChild(row);
+    };
+    for (const f of info.стандартные) addAttrRow(f, f.тип || 'Строка', 'field', false, '•');
+    for (const f of info.реквизиты) addAttrRow(f, f.тип || 'Строка', 'field', false, '▭');
+    for (const t of info.таблицы) {
+      addAttrRow({ имя: t.имя }, '(Табличная часть)', 'table', false, '▦');
+      if (expandedT.has(t.имя))
+        for (const a of t.реквизиты) addAttrRow(a, a.тип || 'Строка', null, true, '▫');
+    }
   }
 
   // лёгкая перерисовка (не трогая фокус в свойствах) — обновить подписи
@@ -551,6 +705,9 @@ function html(info, formName, elements) {
   };
   document.getElementById('btnAxaml').onclick = () => {
     vscode.postMessage({ type: 'exportAxaml', elements: els });
+  };
+  document.getElementById('tabModule').onclick = () => {
+    vscode.postMessage({ type: 'openModule' });
   };
   document.getElementById('btnDel').onclick = () => {
     if (!sel) return;
