@@ -6,7 +6,7 @@ using OneC.Core;
 namespace Client;
 
 /// <summary>Главное окно клиента. Разметка — MainWindow.axaml, внешний вид — App.axaml.</summary>
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IНавигаторФорм
 {
     string _корень = "";
     Конфигурация _конфиг = new();
@@ -63,6 +63,7 @@ public partial class MainWindow : Window
                     "Выполните публикацию конфигурации из конфигуратора (VS Code)."));
 
         _база = new База(файлБД, _конфиг);
+        Формы.Навигатор = this;   // ОткрытьСписок из модулей и кнопки «Перейти»
 
         Title = $"{_конфиг.Представление()} — 1С-мини клиент";
 
@@ -133,30 +134,27 @@ public partial class MainWindow : Window
         Секция("Регистры накопления", "РегистрНакопления");
     }
 
-    (string Таблица, List<string> Колонки, string Ключ, bool Редактируемый) Схема(ОбъектМетаданных о)
-    {
-        var таблица = База.ИмяТаблицы(о);
-        return о.Вид switch
-        {
-            "Справочник" => (таблица,
-                new List<string> { "Код", "Наименование" }.Concat(о.Реквизиты.Select(р => р.Имя)).ToList(),
-                "Ссылка", true),
-            "Документ" => (таблица,
-                new List<string> { "Номер", "Дата" }.Concat(о.Реквизиты.Select(р => р.Имя)).ToList(),
-                "Ссылка", true),
-            "Перечисление" => (таблица, new List<string> { "Имя", "Синоним" }, "Имя", false),
-            "РегистрСведений" => (таблица,
-                о.Измерения.Concat(о.Ресурсы).Concat(о.Реквизиты).Select(р => р.Имя).ToList(), "", false),
-            "РегистрНакопления" => (таблица,
-                new List<string> { "Период", "ВидДвижения" }
-                    .Concat(о.Измерения.Concat(о.Ресурсы).Select(р => р.Имя)).ToList(), "", false),
-            _ => (таблица, new List<string>(), "", false)
-        };
-    }
+    // Схема списков вынесена в СхемаСписка — её использует и ОкноСписка (отбор из «Перейти»/модулей)
+    static (string Таблица, List<string> Колонки, string Ключ, bool Редактируемый) Схема(ОбъектМетаданных о) =>
+        СхемаСписка.Схема(о);
 
-    string? ТипКолонки(ОбъектМетаданных о, string колонка) =>
-        о.Реквизиты.Concat(о.Измерения).Concat(о.Ресурсы)
-         .FirstOrDefault(р => р.Имя == колонка)?.Тип;
+    static string? ТипКолонки(ОбъектМетаданных о, string колонка) => СхемаСписка.ТипКолонки(о, колонка);
+
+    /// <summary>IНавигаторФорм: открыть список объекта с отбором (из модулей — Формы.ОткрытьСписок).</summary>
+    public void ОткрытьСписок(string полноеИмяОбъекта, Dictionary<string, object?>? отбор = null)
+    {
+        var о = _конфиг.Найти(полноеИмяОбъекта);
+        if (о == null || _база == null) return;
+        Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+        {
+            // владелец — активное окно (список может открываться поверх формы записи)
+            var владелец = (Avalonia.Application.Current?.ApplicationLifetime as
+                    Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?
+                .Windows.FirstOrDefault(w => w.IsActive) ?? (Window)this;
+            await new ОкноСписка(_конфиг, _база, о, отбор).ShowDialog(владелец);
+            ПоказатьСписок();
+        });
+    }
 
     void ПоказатьСписок()
     {

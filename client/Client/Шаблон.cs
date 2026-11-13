@@ -30,6 +30,14 @@ public static class Шаблон
     public static Button Кнопка(string текст, Action действие, bool основная = false) =>
         Кнопка(текст, () => { действие(); return Task.CompletedTask; }, основная);
 
+    /// <summary>Кнопка с выпадающим меню (например, «Перейти» в форме записи).</summary>
+    public static Button КнопкаМеню(string текст, IEnumerable<MenuItem> пункты)
+    {
+        var кнопка = new Button { Content = текст + " ▾" };
+        кнопка.Flyout = new MenuFlyout { ItemsSource = пункты.ToList() };
+        return кнопка;
+    }
+
     public static Button КнопкаДиалога(string текст, Action действие) =>
         С(Кнопка(текст, действие), "dialog");
 

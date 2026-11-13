@@ -92,12 +92,26 @@ public class База : IDisposable, IИсточникЗапросов
         return к.ExecuteScalar() != null;
     }
 
-    public List<Dictionary<string, object?>> Выбрать(string таблица, string? порядок = null)
+    public List<Dictionary<string, object?>> Выбрать(string таблица, string? порядок = null,
+        Dictionary<string, object?>? отбор = null)
     {
         var строки = new List<Dictionary<string, object?>>();
         if (!ТаблицаЕсть(таблица)) return строки;
         using var к = _соединение.CreateCommand();
-        к.CommandText = $"SELECT * FROM \"{таблица}\"" + (порядок != null ? $" ORDER BY \"{ВКолонку(таблица, порядок)}\"" : "");
+        var где = "";
+        if (отбор is { Count: > 0 })
+        {
+            var условия = new List<string>();
+            var н = 0;
+            foreach (var (ключ, значение) in отбор)
+            {
+                условия.Add($"\"{ВКолонку(таблица, ключ)}\" = @ф{н}");
+                к.Parameters.AddWithValue($"@ф{н}", значение ?? "");
+                н++;
+            }
+            где = " WHERE " + string.Join(" AND ", условия);
+        }
+        к.CommandText = $"SELECT * FROM \"{таблица}\"" + где + (порядок != null ? $" ORDER BY \"{ВКолонку(таблица, порядок)}\"" : "");
         using var ч = к.ExecuteReader();
         while (ч.Read())
         {
