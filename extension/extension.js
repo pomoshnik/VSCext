@@ -1148,7 +1148,10 @@ function cmdOpenForm(provider, treeView, storage, node) {
   if (!objNode) return;
 
   const info = objectInfoFor(provider, objNode);
-  if (!node.form || !node.form.length) node.form = formEditor.defaultElements(info);
+  if (!node.form || !node.form.length)
+    node.form = node.name.includes('Списка')
+      ? formEditor.defaultListElements(info)
+      : formEditor.defaultElements(info);
 
   if (!node.props) node.props = { Заголовок: '', Ширина: 0, Высота: 0 };
   let panel = formPanels.get(node.id);

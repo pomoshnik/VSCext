@@ -28,6 +28,17 @@ function defaultElements(info) {
   return els;
 }
 
+// Форма списка по умолчанию: командная панель списка + сам список
+function defaultListElements(info) {
+  return [
+    { Тип: 'Кнопка', Действие: 'Создать', Заголовок: 'Создать' },
+    { Тип: 'Кнопка', Действие: 'Изменить', Заголовок: 'Изменить' },
+    { Тип: 'Кнопка', Действие: 'Удалить', Заголовок: 'Удалить' },
+    { Тип: 'Кнопка', Действие: 'Обновить', Заголовок: 'Обновить' },
+    { Тип: 'Список' }
+  ];
+}
+
 function html(info, formName, elements, props) {
   const data = JSON.stringify({ info, formName, elements,
     props: props || { Заголовок: '', Ширина: 0, Высота: 0 } }).replace(/</g, '\\u003c');
@@ -197,9 +208,13 @@ function html(info, formName, elements, props) {
   const expandedT = new Set();      // раскрытые ТЧ в панели реквизитов
   const activePages = new Map();    // элемент «Страницы» -> активная вкладка (индекс)
 
-  const ICONS = { 'Поле': '▭', 'Таблица': '▦', 'Кнопка': '🔘', 'Группа': '▣', 'Страницы': '🗂', 'Страница': '📄', 'Декорация': '𝐓' };
+  const ICONS = { 'Поле': '▭', 'Таблица': '▦', 'Кнопка': '🔘', 'Группа': '▣', 'Страницы': '🗂', 'Страница': '📄', 'Декорация': '𝐓', 'Список': '☰' };
+  // Форма списка (как в 1С): вместо полей — колонки списка и команды списка
+  const listMode = String(data.formName).includes('Списка');
+  const STD_LIST_ACTIONS = ['Создать', 'Изменить', 'Удалить', 'Обновить'];
   const STD_ACTIONS = ['ЗаписатьИЗакрыть', 'Отмена'];
-  const CMD_TITLES = { 'ЗаписатьИЗакрыть': 'Записать и закрыть', 'Отмена': 'Отмена' };
+  const CMD_TITLES = { 'ЗаписатьИЗакрыть': 'Записать и закрыть', 'Отмена': 'Отмена',
+                       'Создать': 'Создать', 'Изменить': 'Изменить', 'Удалить': 'Удалить', 'Обновить': 'Обновить' };
   const CONTAINERS = ['Группа', 'Страницы', 'Страница'];
   // события по типам элементов (обработчик — публичный метод модуля объекта на C#)
   const EVENTS = { 'Поле': ['ПриИзменении', 'ПриВходе', 'ПриВыходе'], 'Таблица': ['ПриИзменении'] };
@@ -220,7 +235,9 @@ function html(info, formName, elements, props) {
       const к = sel.колонка;
       клон = { Тип: 'Колонка', Имя: к.Реквизит, Реквизит: к.Реквизит, Заголовок: к.Заголовок || '',
                Видимость: к.Видимость !== false, ТолькоПросмотр: !!к.ТолькоПросмотр, Ширина: к.Ширина || 0,
-               ПутьКДанным: 'Объект.' + sel.таблица.ТабличнаяЧасть + '.' + к.Реквизит,
+               ПутьКДанным: sel.таблица.Тип === 'Список'
+                 ? 'Список.' + к.Реквизит
+                 : 'Объект.' + sel.таблица.ТабличнаяЧасть + '.' + к.Реквизит,
                ТипЗначения: colType(sel.таблица, к) };
       vscode.postMessage({ type: 'elementSelected', element: клон });
       return;
@@ -283,29 +300,38 @@ function html(info, formName, elements, props) {
     return info.стандартные.find(f => f.имя === name) || info.реквизиты.find(f => f.имя === name);
   }
   function tabularDef(name) { return info.таблицы.find(t => t.имя === name); }
-  // колонки таблицы: настроенные (e.Колонки) или все реквизиты ТЧ
+  // реквизиты, доступные колонкам СПИСКА (как схема списка в клиенте)
+  function listAttrs() {
+    const доп = info.вид === 'Документ' ? [{ имя: 'Проведен', синоним: 'Проведен', тип: 'Булево' }] : [];
+    return доп.concat(info.стандартные, info.реквизиты);
+  }
+  // колонки таблицы/списка: настроенные (e.Колонки) или все по умолчанию
+  function colAttrsOf(e) {
+    if (e.Тип === 'Список') return listAttrs();
+    const t = tabularDef(e.ТабличнаяЧасть);
+    return t ? t.реквизиты : [];
+  }
   function colsOf(e) {
     if (e.Колонки && e.Колонки.length) return e.Колонки;
-    const t = tabularDef(e.ТабличнаяЧасть);
-    return (t ? t.реквизиты : []).map(р => ({ Реквизит: р.имя, Заголовок: '', Видимость: true, ТолькоПросмотр: false, Ширина: 0 }));
+    return colAttrsOf(e).map(р => ({ Реквизит: р.имя, Заголовок: '', Видимость: true, ТолькоПросмотр: false, Ширина: 0 }));
   }
   function ensureCols(e) { if (!e.Колонки || !e.Колонки.length) e.Колонки = colsOf(e); return e.Колонки; }
   function colType(e, к) {
-    const t = tabularDef(e.ТабличнаяЧасть);
-    const р = t && t.реквизиты.find(x => x.имя === к.Реквизит);
+    const р = colAttrsOf(e).find(x => x.имя === к.Реквизит);
     return (р && р.тип) || 'Строка';
   }
   function colTitle(e, к) {
     if (к.Заголовок) return к.Заголовок;
-    const t = tabularDef(e.ТабличнаяЧасть);
-    const р = t && t.реквизиты.find(x => x.имя === к.Реквизит);
+    const р = colAttrsOf(e).find(x => x.имя === к.Реквизит);
     return (р && р.синоним) || к.Реквизит;
   }
+  function findList() { let f = null; walk(els, e => { if (e.Тип === 'Список') f = e; }); return f; }
   function elTitle(e) {
     if (e.Тип === 'Поле') return e.Заголовок || e.Реквизит;
     if (e.Тип === 'Таблица') return e.Заголовок || e.ТабличнаяЧасть;
     if (e.Тип === 'Кнопка') return e.Заголовок || e.Действие;
     if (e.Тип === 'Декорация') return e.Заголовок || 'Надпись';
+    if (e.Тип === 'Список') return 'Список';
     return e.Заголовок || e.Тип;
   }
 
@@ -383,6 +409,17 @@ function html(info, formName, elements, props) {
 
   // Бросок реквизита: target = {arr, at} | {into: контейнер}
   function dropAttr(a, target) {
+    if (listMode && a.kind === 'field') {        // форма списка: реквизит -> колонка списка
+      const сп = findList();
+      if (!сп) { attrDrag = null; return; }
+      const кол = ensureCols(сп);
+      let к = кол.find(x => x.Реквизит === a.name);
+      if (!к) { к = { Реквизит: a.name, Заголовок: '', Видимость: true, ТолькоПросмотр: false, Ширина: 0 }; кол.push(к); scheduleSave(); }
+      else if (к.Видимость === false) { к.Видимость = true; scheduleSave(); }
+      sel = { __кол: true, таблица: сп, колонка: к };
+      attrDrag = null; render(); return;
+    }
+    if (listMode && a.kind === 'table') { attrDrag = null; return; }   // ТЧ в списке не размещают
     const существующий = existingFor(a);
     if (существующий) { sel = существующий; attrDrag = null; render(); return; }  // дубль не создаём — выделяем
     const нов = makeFromAttr(a);
@@ -578,8 +615,8 @@ function html(info, formName, elements, props) {
       treeRows.push({ div, label: () => elTitle(e) });
       rowByEl.set(e, div);
 
-      // колонки таблицы — дочерние узлы (как ПолеКолонки в 1С)
-      if (e.Тип === 'Таблица') {
+      // колонки таблицы/списка — дочерние узлы (как ПолеКолонки в 1С)
+      if (e.Тип === 'Таблица' || e.Тип === 'Список') {
         colsOf(e).forEach((к, i) => {
           const кDiv = mkRow(depth + 2, '▥', colTitle(e, к), !!(sel && sel.__кол && sel.колонка === к));
           if (к.Видимость === false) кDiv.classList.add('dim');
@@ -780,6 +817,33 @@ function html(info, formName, elements, props) {
           dragSource(d, e);
           acceptAttrBefore(d, e);
           dom.appendChild(d);
+        } else if (e.Тип === 'Список') {
+          const wrap = document.createElement('div');
+          wrap.className = 'tbl1c' + (e === sel ? ' sel-el' : '');
+          const колонки = colsOf(e);
+          const видимыеКол = [];
+          колонки.forEach((к, i) => { if (к.Видимость !== false) видимыеКол.push(i); });
+          let ths = '';
+          for (const i of видимыеКол) {
+            const к = колонки[i];
+            const selCol = sel && sel.__кол && sel.колонка === к;
+            ths += '<th data-col="' + i + '"' + (selCol ? ' class="sel-col"' : '')
+                + (к.Ширина > 0 ? ' style="width:' + к.Ширина + 'px"' : '') + '>'
+                + colTitle(e, к) + '</th>';
+          }
+          let rows = '';
+          for (let r = 1; r <= 4; r++) rows += '<tr>' + '<td></td>'.repeat(видимыеКол.length) + '</tr>';
+          wrap.innerHTML = '<div class="cap">🔍 <input placeholder="Поиск (Ctrl+F)" style="border:1px solid #aab2ba;padding:2px 6px;pointer-events:none"></div>'
+            + '<table><tr>' + ths + '</tr>' + rows + '</table>';
+          wrap.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
+          for (const th of wrap.querySelectorAll('th[data-col]'))
+            th.onclick = ev => {
+              ev.stopPropagation();
+              const кол = ensureCols(e)[+th.dataset.col];
+              sel = { __кол: true, таблица: e, колонка: кол };
+              render();
+            };
+          dom.appendChild(wrap);
         } else if (e.Тип === 'Группа') {
           const g = document.createElement('div');
           g.className = 'grp1c' + (e === sel ? ' sel-el' : '')
@@ -841,9 +905,24 @@ function html(info, formName, elements, props) {
       if (e.Тип === 'Таблица') usedT.add(e.ТабличнаяЧасть);
       if (e.Тип === 'Кнопка') usedC.add(e.Действие);
     });
+    if (listMode) {
+      const сп = findList();
+      if (сп) for (const к of colsOf(сп)) if (к.Видимость !== false) used.add(к.Реквизит);
+    }
     const addSel = document.getElementById('addSelect');
     const prev = addSel.value;
     addSel.innerHTML = '';
+    if (listMode) {
+      const ogК = document.createElement('optgroup'); ogК.label = 'Колонки';
+      for (const f of listAttrs())
+        if (!used.has(f.имя)) ogК.appendChild(new Option(f.синоним || f.имя, 'f:' + f.имя));
+      const ogБ = document.createElement('optgroup'); ogБ.label = 'Кнопки';
+      for (const д of STD_LIST_ACTIONS)
+        if (!usedC.has(д)) ogБ.appendChild(new Option(CMD_TITLES[д] || д, 'b:' + д));
+      if (ogК.children.length) addSel.appendChild(ogК);
+      if (ogБ.children.length) addSel.appendChild(ogБ);
+      if ([...addSel.options].some(o => o.value === prev)) addSel.value = prev;
+    } else {
     const og0 = document.createElement('optgroup'); og0.label = 'Группировка';
     og0.appendChild(new Option('Группа', 'g:Группа'));
     og0.appendChild(new Option('Страницы (вкладки)', 'g:Страницы'));
@@ -866,6 +945,7 @@ function html(info, formName, elements, props) {
     addSel.appendChild(og3);
     addSel.appendChild(og4);
     if ([...addSel.options].some(o => o.value === prev)) addSel.value = prev;
+    }
 
     // --- панель «Реквизиты» (как закладка Реквизиты в 1С) ---
     const attrs = document.getElementById('attrs');
@@ -909,19 +989,27 @@ function html(info, formName, elements, props) {
     document.getElementById('attrHeadNm').textContent = attrTab === 'attrs' ? 'Реквизит' : 'Команда';
     document.getElementById('attrHeadTp').textContent = attrTab === 'attrs' ? 'Тип' : 'Представление';
     document.getElementById('attrHint').textContent = attrTab === 'attrs'
-      ? 'Перетащите реквизит или табличную часть на форму либо в дерево элементов.'
-      : 'Перетащите команду на форму — появится кнопка. Команды — публичные методы модуля объекта (C#); вкладка «Модуль» внизу открывает его.';
+      ? (listMode ? 'Перетащите реквизит на форму — появится колонка списка.'
+                  : 'Перетащите реквизит или табличную часть на форму либо в дерево элементов.')
+      : (listMode ? 'Перетащите команду на форму — появится кнопка командной панели списка.'
+                  : 'Перетащите команду на форму — появится кнопка. Команды — публичные методы модуля объекта (C#); вкладка «Модуль» внизу открывает его.');
     if (attrTab === 'attrs') {
-      for (const f of info.стандартные) addAttrRow(f, f.тип || 'Строка', 'field', false, '•');
-      for (const f of info.реквизиты) addAttrRow(f, f.тип || 'Строка', 'field', false, '▭');
-      for (const t of info.таблицы) {
-        addAttrRow({ имя: t.имя }, '(Табличная часть)', 'table', false, '▦');
-        if (expandedT.has(t.имя))
-          for (const a of t.реквизиты) addAttrRow(a, a.тип || 'Строка', null, true, '▫');
+      if (listMode) {
+        for (const f of listAttrs()) addAttrRow(f, f.тип || 'Строка', 'field', false, '▭');
+      } else {
+        for (const f of info.стандартные) addAttrRow(f, f.тип || 'Строка', 'field', false, '•');
+        for (const f of info.реквизиты) addAttrRow(f, f.тип || 'Строка', 'field', false, '▭');
+        for (const t of info.таблицы) {
+          addAttrRow({ имя: t.имя }, '(Табличная часть)', 'table', false, '▦');
+          if (expandedT.has(t.имя))
+            for (const a of t.реквизиты) addAttrRow(a, a.тип || 'Строка', null, true, '▫');
+        }
       }
     } else {
-      for (const и of STD_ACTIONS) addAttrRow({ имя: и }, CMD_TITLES[и] + ' (стандартная)', 'cmd', false, '🔘');
-      for (const к of (info.команды || [])) addAttrRow({ имя: к.имя }, '(метод модуля C#)', 'cmd', false, '⚙');
+      for (const и of (listMode ? STD_LIST_ACTIONS : STD_ACTIONS))
+        addAttrRow({ имя: и }, CMD_TITLES[и] + ' (стандартная)', 'cmd', false, '🔘');
+      if (!listMode)
+        for (const к of (info.команды || [])) addAttrRow({ имя: к.имя }, '(метод модуля C#)', 'cmd', false, '⚙');
     }
   }
 
@@ -981,6 +1069,7 @@ function html(info, formName, elements, props) {
   function addNew(v) {
     if (!v) return;
     const [k, name] = [v.slice(0, 1), v.slice(2)];
+    if (listMode && k === 'f') { dropAttr({ kind: 'field', name }, {}); return; }
     let нов;
     if (k === 'f') {
       const d = fieldDef(name);
@@ -992,7 +1081,7 @@ function html(info, formName, elements, props) {
       if (name === 'КомандаМодуля')
         нов = { Тип: 'Кнопка', Действие: 'МояКоманда', Заголовок: 'Моя команда' };
       else
-        нов = { Тип: 'Кнопка', Действие: name, Заголовок: name === 'ЗаписатьИЗакрыть' ? 'Записать и закрыть' : 'Отмена' };
+        нов = { Тип: 'Кнопка', Действие: name, Заголовок: CMD_TITLES[name] || name };
     } else if (k === 'd') {
       нов = { Тип: 'Декорация', Заголовок: 'Надпись' };
     } else { // g: контейнеры
@@ -1010,6 +1099,7 @@ function html(info, formName, elements, props) {
   document.getElementById('btnAxaml').onclick = () => {
     vscode.postMessage({ type: 'exportAxaml', elements: els });
   };
+  if (listMode) document.getElementById('btnAxaml').style.display = 'none';
   document.getElementById('tabModule').onclick = () => {
     vscode.postMessage({ type: 'openModule' });
   };
@@ -1024,4 +1114,4 @@ function html(info, formName, elements, props) {
 </body></html>`;
 }
 
-module.exports = { html, defaultElements, standardFields };
+module.exports = { html, defaultElements, defaultListElements, standardFields };
