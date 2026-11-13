@@ -326,6 +326,19 @@ function html(info, formName, elements, props) {
     const р = colAttrsOf(e).find(x => x.имя === к.Реквизит);
     return (р && р.синоним) || к.Реквизит;
   }
+  // Образец данных в превью: сразу видно оформление таблиц; значения детерминированные
+  const СЛОВА = ['Ромашка', 'Василёк', 'Восход', 'Алмаз', 'Мечта', 'Звезда'];
+  const ЧИСЛА = ['12', '7', '125,40', '3', '48,90', '210,00'];
+  const ДАТЫ = ['05.03.2026', '17.06.2026', '09.11.2026', '21.01.2026'];
+  function образецТд(тип, имя, кол, строка) {
+    const х = кол * 7 + строка * 3;
+    if (имя === 'Номер' || имя === 'Код') return '<td>00000000' + (строка + 1) + '</td>';
+    if (тип === 'Число') return '<td style="text-align:right">' + ЧИСЛА[х % ЧИСЛА.length] + '</td>';
+    if (тип === 'Булево') return '<td style="text-align:center">' + (строка % 2 ? '' : '✓') + '</td>';
+    if (тип === 'Дата') return '<td>' + ДАТЫ[х % ДАТЫ.length] + '</td>';
+    return '<td>' + СЛОВА[х % СЛОВА.length] + '</td>';
+  }
+
   function findList() { let f = null; walk(els, e => { if (e.Тип === 'Список') f = e; }); return f; }
   function elTitle(e) {
     if (e.Тип === 'Поле') return e.Заголовок || e.Реквизит;
@@ -794,9 +807,12 @@ function html(info, formName, elements, props) {
                 + (к.Ширина > 0 ? ' style="width:' + к.Ширина + 'px"' : '') + '>'
                 + colTitle(e, к) + '</th>';
           }
-          const cols = видимыеКол.length + 1;
           let rows = '';
-          for (let r = 1; r <= 2; r++) rows += '<tr>' + '<td></td>'.repeat(cols) + '</tr>';
+          for (let r = 0; r < 2; r++) {
+            rows += '<tr><td style="text-align:right;color:#888">' + (r + 1) + '</td>';
+            видимыеКол.forEach((i, n) => { rows += образецТд(colType(e, колонки[i]), колонки[i].Реквизит, n, r); });
+            rows += '</tr>';
+          }
           wrap.innerHTML = '<div class="cap">' + elTitle(e) + '</div><table><tr>' + ths + '</tr>' + rows + '</table>';
           wrap.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
           for (const th of wrap.querySelectorAll('th[data-col]'))
@@ -842,8 +858,11 @@ function html(info, formName, elements, props) {
             + '</svg>';
           const статусы = док ? ['п', '', 'у', 'п'] : ['', '', 'у', ''];
           let rows = '';
-          for (let r = 0; r < 4; r++)
-            rows += '<tr><td class="icn">' + иконка(статусы[r]) + '</td>' + '<td></td>'.repeat(видимыеКол.length) + '</tr>';
+          for (let r = 0; r < 4; r++) {
+            rows += '<tr><td class="icn">' + иконка(статусы[r]) + '</td>';
+            видимыеКол.forEach((i, n) => { rows += образецТд(colType(e, колонки[i]), колонки[i].Реквизит, n, r); });
+            rows += '</tr>';
+          }
           wrap.innerHTML = '<div class="cap">🔍 <input placeholder="Поиск (Ctrl+F)" style="border:1px solid #aab2ba;padding:2px 6px;pointer-events:none"></div>'
             + '<table><tr><th class="icn" title="Состояние: зелёная галочка — проведён, красный крестик — помечен на удаление"></th>' + ths + '</tr>' + rows + '</table>';
           wrap.onclick = ev => { ev.stopPropagation(); sel = e; render(); };
