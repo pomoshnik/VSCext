@@ -305,10 +305,15 @@ async function publish(model, rootPath, extensionDir) {
       require('child_process').execFile(
         'dotnet', ['build', logicDir, '-c', 'Release', '--nologo', '-v', 'q'],
         { cwd: rootPath, timeout: 300000, maxBuffer: 16 * 1024 * 1024 },
-        (err, stdout, stderr) => err
-          ? reject(new Error('Сборка конфигурации (dotnet build src/BusinessLogic) не удалась:\n' +
-              String(stdout || '') + String(stderr || err.message)))
-          : resolve());
+        (err, stdout, stderr) => {
+          if (!err) return resolve();
+          let текст = String(stdout || '') + String(stderr || err.message);
+          if (/CS0246.*(Движение|НаборДвижений|Запрос|МодельФормы|КомандаМодели)/.test(текст))
+            текст = 'Исходники ядра (src/OneC.Core) старее установленного расширения — ' +
+              'в этой папке устаревшая копия проекта. Выполните «git pull» (задача «git: получить обновления») ' +
+              'и повторите публикацию.\n\n' + текст;
+          reject(new Error('Сборка конфигурации (dotnet build src/BusinessLogic) не удалась:\n' + текст));
+        });
     });
     const найтиDll = dir => {
       for (const имя of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {

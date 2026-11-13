@@ -342,6 +342,8 @@ if (Directory.Exists(каталогЛогики))
     if (процесс.ExitCode != 0)
     {
         Console.WriteLine(вывод);
+        if (System.Text.RegularExpressions.Regex.IsMatch(вывод, "CS0246.*(Движение|НаборДвижений|Запрос|МодельФормы|КомандаМодели)"))
+            Console.WriteLine("ПОДСКАЗКА: исходники ядра (src/OneC.Core) старее генерируемого кода — в этой папке устаревшая копия проекта. Выполните git pull и повторите публикацию.");
         Console.WriteLine("ОШИБКА: конфигурация не скомпилировалась — публикация прервана, DLL не записана.");
         Environment.Exit(1);
     }
