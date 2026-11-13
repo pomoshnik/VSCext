@@ -288,6 +288,75 @@ public class РедакторЗаписи : Window
 
             секция.Строки.Add(строкаТч);
             секция.ПанельСтрок.Children.Add(панель);
+            ПодключитьНавигацию(секция, панель);
+        }
+
+        // --- Клавиатурная навигация по ячейкам ТЧ (как в 1С) ---
+        // Enter — следующая ячейка; в конце строки — первая ячейка следующей;
+        // в конце таблицы — новая строка. Стрелки вверх/вниз — та же колонка
+        // соседней строки. Строка с фокусом подсвечивается (стиль curRow в App.axaml).
+        static List<Control> ЯчейкиСтроки(Control строкаПанель) =>
+            строкаПанель is StackPanel сп
+                ? сп.Children.OfType<Control>().Where(к => к is not Button && к.IsVisible).ToList()
+                : new List<Control>();
+
+        void ПодключитьНавигацию(СекцияТЧ секция, StackPanel панель)
+        {
+            void Перейти(Control? куда) => куда?.Focus();
+
+            foreach (var к in ЯчейкиСтроки(панель))
+            {
+                var ячейка = к;
+                ячейка.GotFocus += (_, _) =>
+                {
+                    foreach (var с in секция.Строки)
+                    {
+                        var это = ReferenceEquals(с.Панель, панель);
+                        if (это && !с.Панель.Classes.Contains("curRow")) с.Панель.Classes.Add("curRow");
+                        if (!это) с.Панель.Classes.Remove("curRow");
+                    }
+                };
+
+                // Enter — туннельным обработчиком (ComboBox «съедает» Enter даже при
+                // закрытом списке); открытый выпадающий список не трогаем — Enter его закрывает
+                ячейка.AddHandler(Avalonia.Input.InputElement.KeyDownEvent, (_, е) =>
+                {
+                    if (е.Handled || е.Key != Avalonia.Input.Key.Enter) return;
+                    if (ячейка is ComboBox { IsDropDownOpen: true }) return;
+                    var ячейки = ЯчейкиСтроки(панель);
+                    var и = ячейки.IndexOf(ячейка);
+                    if (и < 0) return;
+                    var строки = секция.Строки;
+                    var номер = строки.FindIndex(с => ReferenceEquals(с.Панель, панель));
+                    if (и + 1 < ячейки.Count) Перейти(ячейки[и + 1]);
+                    else if (номер + 1 < строки.Count) Перейти(ЯчейкиСтроки(строки[номер + 1].Панель).FirstOrDefault());
+                    else
+                    {
+                        ДобавитьСтроку(секция, null);
+                        if (!_тихо && секция.СобытиеПриИзменении is { } соб) ВыполнитьКомандуФормы(соб);
+                        Перейти(ЯчейкиСтроки(строки[^1].Панель).FirstOrDefault());
+                    }
+                    е.Handled = true;
+                }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+
+                // Стрелки — туннельным обработчиком (до того, как TextBox передвинет каретку);
+                // ComboBox не трогаем: у него стрелки листают значения
+                if (ячейка is not ComboBox)
+                    ячейка.AddHandler(Avalonia.Input.InputElement.KeyDownEvent, (_, е) =>
+                    {
+                        if (е.Handled || е.Key is not (Avalonia.Input.Key.Up or Avalonia.Input.Key.Down)) return;
+                        var ячейки = ЯчейкиСтроки(панель);
+                        var и = ячейки.IndexOf(ячейка);
+                        if (и < 0) return;
+                        var строки = секция.Строки;
+                        var номер = строки.FindIndex(с => ReferenceEquals(с.Панель, панель));
+                        var целевая = е.Key == Avalonia.Input.Key.Up ? номер - 1 : номер + 1;
+                        if (целевая < 0 || целевая >= строки.Count) return;
+                        var ячейкиЦели = ЯчейкиСтроки(строки[целевая].Панель);
+                        Перейти(и < ячейкиЦели.Count ? ячейкиЦели[и] : ячейкиЦели.LastOrDefault());
+                        е.Handled = true;
+                    }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            }
         }
 
         void ТаблицаНаФорме(ТабличнаяЧасть тч, string? заголовок, Panel? куда = null,
