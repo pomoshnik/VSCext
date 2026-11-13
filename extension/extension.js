@@ -1097,9 +1097,17 @@ function cmdOpenForm(provider, treeView, storage, node) {
       exportFormToAxaml(storage, provider, objNode, node.name, msg.elements || node.form || []);
       return;
     }
+    if (msg.type === 'elementSelected') {
+      propsView.showElement(msg.element, panel, objNode, node.name);
+      return;
+    }
     if (msg.type !== 'save') return;
     node.form = msg.elements;
     provider.refresh();
+  });
+  // при возврате на вкладку дизайнера палитра снова показывает его выделение
+  panel.onDidChangeViewState(e => {
+    if (e.webviewPanel.active) e.webviewPanel.webview.postMessage({ type: 'requestSelection' });
   });
   panel.webview.html = formEditor.html(info, node.name, node.form);
 }
@@ -1171,8 +1179,207 @@ async function cmdInit(provider, storage) {
 // Палитра свойств (webview)
 // ---------------------------------------------------------------------------
 
-let propPanel = null;
-let propNodeId = null;
+// ---------------------------------------------------------------------------
+// Палитра свойств — панель в правой боковой панели VS Code (как в Конфигураторе 1С).
+// Показывает свойства выделенного узла дерева ИЛИ элемента в дизайнере форм.
+// ---------------------------------------------------------------------------
+
+const PAL_EVENTS = { 'Поле': ['ПриИзменении', 'ПриВходе', 'ПриВыходе'], 'Таблица': ['ПриИзменении'] };
+const PAL_STD_ACTIONS = ['ЗаписатьИЗакрыть', 'Отмена'];
+
+class PropsViewProvider {
+  constructor() {
+    this.view = null;
+    this.mode = null;            // {kind:'node', node} | {kind:'element', element, formPanel, objNode, formName}
+    this.provider = null;        // OnecTreeProvider (устанавливается в activate)
+    this.storage = null;
+    this._lastElementJson = null;
+  }
+
+  resolveWebviewView(view) {
+    this.view = view;
+    view.webview.options = { enableScripts: true };
+    view.webview.onDidReceiveMessage(msg => this.onMessage(msg));
+    this.rerender();
+  }
+
+  showNode(node) {
+    if (!node) return;
+    this.mode = { kind: 'node', node };
+    this._lastElementJson = null;
+    this.rerender();
+  }
+
+  showElement(element, formPanel, objNode, formName) {
+    // дизайнер шлёт выделение при каждой перерисовке: если это тот же элемент
+    // с теми же значениями — не перерисовываем палитру (не сбрасываем фокус ввода)
+    const j = JSON.stringify({ e: element, f: formName });
+    const тотЖе = this.mode && this.mode.kind === 'element' && this._lastElementJson === j;
+    this.mode = { kind: 'element', element, formPanel, objNode, formName };
+    if (тотЖе) return;
+    this._lastElementJson = j;
+    this.rerender();
+  }
+
+  rerender() {
+    if (!this.view) return;
+    const m = this.mode;
+    if (!m) {
+      this.view.description = '';
+      this.view.webview.html = emptyPropsHtml();
+      return;
+    }
+    if (m.kind === 'node') {
+      const editable = ['object', 'leaf', 'root'].includes(m.node.kind);
+      this.view.description = m.node.name;
+      this.view.webview.html = propsHtml(m.node, editable);
+    } else {
+      const e = m.element;
+      this.view.description = e ? (e.Заголовок || e.Реквизит || e.ТабличнаяЧасть || e.Тип) : m.formName;
+      this.view.webview.html = elementPropsHtml(e, m.formName);
+    }
+  }
+
+  onMessage(msg) {
+    // --- правки узла дерева ---
+    if (msg.type === 'set') {
+      const n = this.provider && this.provider.index.get(msg.id);
+      if (!n) return;
+      if (msg.field === 'name') {
+        if (validateName(msg.value) || msg.value === n.name) return;
+        const oldName = n.name;
+        n.name = msg.value;
+        applyRenameIntegrity(this.provider, n, oldName, msg.value);
+        if (n.kind === 'object') renameModuleWithObject(this.provider.storage, n, oldName, msg.value);
+      } else if (msg.field === 'synonym') n.synonym = msg.value;
+      else if (msg.field === 'comment') n.comment = msg.value;
+      else if (msg.field === 'type') n.type = msg.value;
+      else if (msg.field === 'version') n.version = msg.value;
+      this.provider.refresh();
+      if (this.mode && this.mode.kind === 'node' && this.mode.node.id === n.id) this.view.description = n.name;
+      return;
+    }
+    // --- правки элемента формы: применяем локально и пересылаем в дизайнер ---
+    if (msg.type === 'elSet') {
+      const m = this.mode;
+      if (!m || m.kind !== 'element' || !m.element || !m.formPanel) return;
+      const e = m.element;
+      if (msg.field === 'Событие') {
+        e.События = e.События || {};
+        if (msg.value) e.События[msg.event] = msg.value; else delete e.События[msg.event];
+      } else e[msg.field] = msg.value;
+      this._lastElementJson = JSON.stringify({ e, f: m.formName });   // не перерисовывать палитру
+      m.formPanel.webview.postMessage({ type: 'propEdit', field: msg.field, event: msg.event, value: msg.value });
+      return;
+    }
+    // --- переход «→» к обработчику в модуле ---
+    if (msg.type === 'openHandler') {
+      const m = this.mode;
+      if (m && m.kind === 'element' && m.objNode)
+        openHandlerInModule(this.provider, this.storage, m.objNode, msg.method);
+    }
+  }
+}
+
+const propsView = new PropsViewProvider();
+
+const PAL_STYLE = `
+  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0; margin: 0; font-size: 13px; }
+  .cat { padding: 4px 10px; font-weight: 600; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-editorGroupHeader-tabsBackground); }
+  table { width: 100%; border-collapse: collapse; }
+  td { border-bottom: 1px solid var(--vscode-panel-border); padding: 2px 6px; vertical-align: middle; }
+  td.lbl { width: 42%; border-right: 1px solid var(--vscode-panel-border); }
+  input, select { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid transparent; padding: 3px 4px; font-family: inherit; font-size: inherit; }
+  input:focus, select:focus { outline: none; border-color: var(--vscode-focusBorder); }
+  input[disabled] { opacity: .6; }
+  input[type=checkbox] { width: auto; }
+  .ro { color: var(--vscode-descriptionForeground); padding: 3px 4px; }
+  .evt { display: flex; gap: 4px; }
+  .gobtn { flex: none; width: 26px; cursor: pointer; background: var(--vscode-button-secondaryBackground, #ddd); color: var(--vscode-button-secondaryForeground, #333); border: 1px solid var(--vscode-panel-border); border-radius: 3px; }
+  .gobtn:hover { background: var(--vscode-button-secondaryHoverBackground, #ccc); }
+  .empty { padding: 16px 10px; color: var(--vscode-descriptionForeground); }`;
+
+function emptyPropsHtml() {
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><style>${PAL_STYLE}</style></head>
+<body><div class="empty">Выберите объект в дереве конфигурации или элемент в редакторе формы.</div></body></html>`;
+}
+
+// Свойства элемента формы (дизайнер) — как палитра 1С
+function elementPropsHtml(e, formName) {
+  if (!e) return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><style>${PAL_STYLE}</style></head>
+<body><div class="cat">Форма: ${esc(formName)}</div><div class="empty">Выберите элемент формы.</div></body></html>`;
+
+  const rows = [];
+  rows.push(`<tr><td class="lbl">Тип</td><td><div class="ro">${esc(e.Тип)}</div></td></tr>`);
+  if (e.Тип === 'Поле') rows.push(`<tr><td class="lbl">Реквизит</td><td><div class="ro">${esc(e.Реквизит)}</div></td></tr>`);
+  if (e.Тип === 'Таблица') rows.push(`<tr><td class="lbl">Табличная часть</td><td><div class="ro">${esc(e.ТабличнаяЧасть)}</div></td></tr>`);
+  if (e.Тип === 'Кнопка') {
+    if (PAL_STD_ACTIONS.includes(e.Действие))
+      rows.push(`<tr><td class="lbl">Действие</td><td><div class="ro">${esc(e.Действие)}</div></td></tr>`);
+    else
+      rows.push(`<tr><td class="lbl">Команда (метод C#)</td><td><div class="evt">` +
+        `<input id="pAction" value="${esc(e.Действие)}" placeholder="имя метода">` +
+        `<button class="gobtn" id="goAction" title="Перейти к обработчику в модуле (создаётся при необходимости)">→</button></div></td></tr>`);
+  }
+  rows.push(`<tr><td class="lbl">Заголовок</td><td><input id="pTitle" value="${esc(e.Заголовок)}"></td></tr>`);
+  if (e.Тип === 'Поле')
+    rows.push(`<tr><td class="lbl">Только просмотр</td><td><input type="checkbox" id="pRO"${e.ТолькоПросмотр ? ' checked' : ''}></td></tr>`);
+  if (e.Тип === 'Группа')
+    rows.push(`<tr><td class="lbl">Группировка</td><td><select id="pGrp">` +
+      ['Вертикальная', 'Горизонтальная'].map(v =>
+        `<option${(e.Группировка || 'Вертикальная') === v ? ' selected' : ''}>${v}</option>`).join('') +
+      `</select></td></tr>`);
+
+  const события = PAL_EVENTS[e.Тип] || [];
+  const рядыСобытий = события.map(соб =>
+    `<tr><td class="lbl">${соб}</td><td><div class="evt">` +
+    `<input class="evtInp" data-evt="${соб}" value="${esc((e.События || {})[соб] || '')}" placeholder="имя метода">` +
+    `<button class="gobtn goEvt" data-evt="${соб}" title="Перейти к обработчику в модуле (создаётся при необходимости)">→</button></div></td></tr>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8"><style>${PAL_STYLE}</style></head>
+<body>
+  <div class="cat">Элемент формы «${esc(formName)}»:</div>
+  <table>${rows.join('')}</table>
+  ${события.length ? `<div class="cat">События:</div><table>${рядыСобытий}</table>` : ''}
+  <script>
+    const vscode = acquireVsCodeApi();
+    const автоимя = ${JSON.stringify((e.Реквизит || e.ТабличнаяЧасть || 'Элемент'))};
+    const pTitle = document.getElementById('pTitle');
+    pTitle.addEventListener('input', () => vscode.postMessage({ type: 'elSet', field: 'Заголовок', value: pTitle.value }));
+    const pRO = document.getElementById('pRO');
+    if (pRO) pRO.addEventListener('change', () => vscode.postMessage({ type: 'elSet', field: 'ТолькоПросмотр', value: pRO.checked }));
+    const pGrp = document.getElementById('pGrp');
+    if (pGrp) pGrp.addEventListener('change', () => vscode.postMessage({ type: 'elSet', field: 'Группировка', value: pGrp.value }));
+    const pAction = document.getElementById('pAction');
+    if (pAction) pAction.addEventListener('input', () => vscode.postMessage({ type: 'elSet', field: 'Действие', value: pAction.value }));
+    const goAction = document.getElementById('goAction');
+    if (goAction) goAction.addEventListener('click', () => {
+      let имя = (pAction.value || '').trim();
+      if (!имя) {
+        имя = 'Команда1';
+        pAction.value = имя;
+        vscode.postMessage({ type: 'elSet', field: 'Действие', value: имя });
+      }
+      vscode.postMessage({ type: 'openHandler', method: имя });
+    });
+    for (const inp of document.querySelectorAll('.evtInp'))
+      inp.addEventListener('input', () =>
+        vscode.postMessage({ type: 'elSet', field: 'Событие', event: inp.dataset.evt, value: inp.value.trim() }));
+    for (const btn of document.querySelectorAll('.goEvt'))
+      btn.addEventListener('click', () => {
+        const inp = document.querySelector('.evtInp[data-evt="' + btn.dataset.evt + '"]');
+        let имя = (inp.value || '').trim();
+        if (!имя) {   // как в 1С: имя обработчика по умолчанию — <Элемент><Событие>
+          имя = автоимя + btn.dataset.evt;
+          inp.value = имя;
+          vscode.postMessage({ type: 'elSet', field: 'Событие', event: btn.dataset.evt, value: имя });
+        }
+        vscode.postMessage({ type: 'openHandler', method: имя });
+      });
+  </script>
+</body></html>`;
+}
 
 function nodeTypeLabel(node) {
   if (node.kind === 'root') return 'Конфигурация';
@@ -1181,47 +1388,10 @@ function nodeTypeLabel(node) {
   return node.typeLabel || 'Объект';
 }
 
-function ensurePropPanel(provider) {
-  if (propPanel) return;
-  propPanel = vscode.window.createWebviewPanel(
-    'onecProps', 'Свойства', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-    { enableScripts: true, retainContextWhenHidden: true });
-  propPanel.onDidDispose(() => { propPanel = null; propNodeId = null; });
-  propPanel.webview.onDidReceiveMessage(msg => {
-    if (msg.type !== 'set') return;
-    // правка адресуется узлу, чей id пришёл из формы — даже если палитра
-    // уже переключилась на другой узел, изменение не потеряется и не попадёт не туда
-    const n = provider.index.get(msg.id || propNodeId);
-    if (!n) return;
-    if (msg.field === 'name') {
-      if (validateName(msg.value) || msg.value === n.name) return;
-      const oldName = n.name;
-      n.name = msg.value;
-      applyRenameIntegrity(provider, n, oldName, msg.value);
-      if (n.kind === 'object') renameModuleWithObject(provider.storage, n, oldName, msg.value);
-    } else if (msg.field === 'synonym') n.synonym = msg.value;
-    else if (msg.field === 'comment') n.comment = msg.value;
-    else if (msg.field === 'type') n.type = msg.value;
-    else if (msg.field === 'version') n.version = msg.value;
-    provider.refresh();
-    if (propPanel && n.id === propNodeId) propPanel.title = 'Свойства: ' + n.name;
-  });
-}
-
-// Показать свойства узла в уже открытой палитре
-function showProperties(node) {
-  if (!propPanel || !node) return;
-  propNodeId = node.id;
-  const editable = ['object', 'leaf', 'root'].includes(node.kind);
-  propPanel.title = 'Свойства: ' + node.name;
-  propPanel.webview.html = propsHtml(node, editable);
-}
-
 function cmdProperties(provider, treeView, node) {
   node = node || treeView.selection[0] || provider.model;
-  ensurePropPanel(provider);
-  showProperties(node);
-  propPanel.reveal(vscode.ViewColumn.Beside, true);
+  propsView.showNode(node);
+  vscode.commands.executeCommand('onecProps.focus');
 }
 
 function esc(s) {
@@ -1285,6 +1455,10 @@ function propsHtml(node, editable) {
 function activate(context) {
   const storage = new Storage();
   const provider = new OnecTreeProvider(context, storage);
+  propsView.provider = provider;
+  propsView.storage = storage;
+  context.subscriptions.push(vscode.window.registerWebviewViewProvider('onecProps', propsView,
+    { webviewOptions: { retainContextWhenHidden: true } }));
   const treeView = vscode.window.createTreeView('onecConfigTree', {
     treeDataProvider: provider,
     showCollapseAll: true
@@ -1306,10 +1480,10 @@ function activate(context) {
     context.subscriptions.push(watcher);
   }
 
-  // Палитра свойств следует за выделением в дереве (как в Конфигураторе 1С)
+  // Палитра свойств (правая панель) следует за выделением в дереве — как в Конфигураторе 1С
   treeView.onDidChangeSelection(e => {
     const n = e.selection && e.selection[0];
-    if (propPanel && n && n.id !== propNodeId) showProperties(n);
+    if (n) propsView.showNode(n);
   });
 
   context.subscriptions.push(

@@ -45,7 +45,7 @@ function html(info, formName, elements) {
   .cols { display: flex; flex: 1; min-height: 0; }
   .col-list { width: 250px; flex: none; border-right: 1px solid var(--vscode-panel-border); overflow: auto; }
   .col-prev { flex: 1; overflow: auto; background: #d6d9dd; padding: 14px; }
-  .col-prop { width: 250px; flex: none; border-left: 1px solid var(--vscode-panel-border); overflow: auto; }
+
   .hdr { padding: 5px 8px; font-weight: 600; background: var(--vscode-sideBarSectionHeader-background);
          border-bottom: 1px solid var(--vscode-panel-border); position: sticky; top: 0; }
   .el { padding: 4px 8px; cursor: pointer; display: flex; gap: 6px; align-items: center; border: 1px solid transparent; }
@@ -137,7 +137,7 @@ function html(info, formName, elements) {
     <div class="col-list"><div class="hdr">Элементы формы</div><div id="list"></div>
       <div class="hint">Перетащите элемент НА группу/страницу, чтобы вложить; МЕЖДУ — чтобы изменить порядок.</div></div>
     <div class="col-prev"><div class="form1c" id="preview"></div></div>
-    <div class="col-prop"><div class="hdr">Свойства</div><div id="props"></div></div>
+
   </div>
 <script>
   const vscode = acquireVsCodeApi();
@@ -154,6 +154,28 @@ function html(info, formName, elements) {
   const CONTAINERS = ['Группа', 'Страницы', 'Страница'];
   // события по типам элементов (обработчик — публичный метод модуля объекта на C#)
   const EVENTS = { 'Поле': ['ПриИзменении', 'ПриВходе', 'ПриВыходе'], 'Таблица': ['ПриИзменении'] };
+
+  // Выделенный элемент показывается в палитре свойств (правая панель VS Code)
+  function postSelection() {
+    vscode.postMessage({ type: 'elementSelected', element: sel ? JSON.parse(JSON.stringify(sel)) : null });
+  }
+
+  // Правки из палитры свойств
+  window.addEventListener('message', ev => {
+    const m = ev.data || {};
+    if (m.type === 'requestSelection') { postSelection(); return; }
+    if (m.type !== 'propEdit' || !sel) return;
+    if (m.field === 'Событие') {
+      sel.События = sel.События || {};
+      if (m.value) sel.События[m.event] = m.value; else delete sel.События[m.event];
+      scheduleSave();
+      return;
+    }
+    if (m.field === 'Заголовок') { sel.Заголовок = m.value; scheduleSave(); renderSoft(); return; }
+    if (m.field === 'ТолькоПросмотр') { sel.ТолькоПросмотр = m.value; scheduleSave(); render(); return; }
+    if (m.field === 'Группировка') { sel.Группировка = m.value; scheduleSave(); render(); return; }
+    if (m.field === 'Действие') { sel.Действие = m.value; scheduleSave(); return; }
+  });
   const isCont = e => CONTAINERS.includes(e.Тип);
   const kids = e => (e.Элементы || (e.Элементы = []));
 
@@ -410,97 +432,8 @@ function html(info, formName, elements) {
       }
     }
 
-    // --- свойства ---
-    const props = document.getElementById('props');
-    props.innerHTML = '';
-    if (!sel) {
-      props.innerHTML = '<div class="empty">Выберите элемент формы</div>';
-    } else {
-      const e = sel;
-      const addProp = (label, valueHtml) => {
-        const p = document.createElement('div');
-        p.className = 'prop';
-        p.innerHTML = '<div class="lbl">' + label + '</div><div class="val">' + valueHtml + '</div>';
-        props.appendChild(p);
-      };
-      addProp('Тип', '<div class="ro">' + e.Тип + '</div>');
-      if (e.Тип === 'Поле') addProp('Реквизит', '<div class="ro">' + e.Реквизит + '</div>');
-      if (e.Тип === 'Таблица') addProp('Табличная часть', '<div class="ro">' + e.ТабличнаяЧасть + '</div>');
-      if (e.Тип === 'Кнопка') {
-        if (STD_ACTIONS.includes(e.Действие))
-          addProp('Действие', '<div class="ro">' + e.Действие + '</div>');
-        else {
-          // команда кнопки: как у событий — имя метода + переход «→» к коду
-          const p = document.createElement('div');
-          p.className = 'prop';
-          p.innerHTML = '<div class="lbl">Команда (метод C#)</div><div class="val evt">' +
-            '<input type="text" id="pAction" value="' + (e.Действие || '').replace(/"/g, '&quot;') + '" placeholder="имя метода">' +
-            '<button class="gobtn" title="Перейти к обработчику в модуле (создаётся при необходимости)">→</button></div>';
-          p.querySelector('button').addEventListener('click', () => {
-            let имя = (document.getElementById('pAction').value || '').trim();
-            if (!имя) {
-              имя = 'Команда1';
-              document.getElementById('pAction').value = имя;
-              e.Действие = имя;
-              scheduleSave();
-            }
-            vscode.postMessage({ type: 'openHandler', method: имя });
-          });
-          props.appendChild(p);
-        }
-      }
-      addProp('Заголовок', '<input type="text" id="pTitle" value="' + (e.Заголовок || '').replace(/"/g, '&quot;') + '">');
-      if (e.Тип === 'Поле')
-        addProp('Только просмотр', '<input type="checkbox" id="pRO"' + (e.ТолькоПросмотр ? ' checked' : '') + '>');
-      if (e.Тип === 'Группа')
-        addProp('Группировка', '<select id="pGrp">' +
-          ['Вертикальная', 'Горизонтальная'].map(v =>
-            '<option' + ((e.Группировка || 'Вертикальная') === v ? ' selected' : '') + '>' + v + '</option>').join('') +
-          '</select>');
-
-      const pTitle = document.getElementById('pTitle');
-      pTitle.addEventListener('input', () => { e.Заголовок = pTitle.value; scheduleSave(); renderSoft(); });
-      const pRO = document.getElementById('pRO');
-      if (pRO) pRO.addEventListener('change', () => { e.ТолькоПросмотр = pRO.checked; scheduleSave(); render(); });
-      const pGrp = document.getElementById('pGrp');
-      if (pGrp) pGrp.addEventListener('change', () => { e.Группировка = pGrp.value; scheduleSave(); render(); });
-      const pAction = document.getElementById('pAction');
-      if (pAction) pAction.addEventListener('input', () => { e.Действие = pAction.value; scheduleSave(); });
-
-      // --- события элемента: имя метода C# + переход к коду ---
-      const список = EVENTS[e.Тип];
-      if (список) {
-        const h = document.createElement('div');
-        h.className = 'sect'; h.textContent = 'События';
-        props.appendChild(h);
-        for (const соб of список) {
-          const p = document.createElement('div');
-          p.className = 'prop';
-          const val = ((e.События || {})[соб] || '').replace(/"/g, '&quot;');
-          p.innerHTML = '<div class="lbl">' + соб + '</div><div class="val evt">' +
-            '<input type="text" value="' + val + '" placeholder="имя метода">' +
-            '<button class="gobtn" title="Перейти к обработчику в модуле (создаётся при необходимости)">→</button></div>';
-          const inp = p.querySelector('input'), btn = p.querySelector('button');
-          inp.addEventListener('input', () => {
-            e.События = e.События || {};
-            if (inp.value.trim()) e.События[соб] = inp.value.trim();
-            else delete e.События[соб];
-            scheduleSave();
-          });
-          btn.addEventListener('click', () => {
-            let имя = inp.value.trim();
-            if (!имя) {   // как в 1С: имя обработчика по умолчанию — <Элемент><Событие>
-              имя = (e.Реквизит || e.ТабличнаяЧасть || 'Элемент') + соб;
-              inp.value = имя;
-              (e.События = e.События || {})[соб] = имя;
-              scheduleSave();
-            }
-            vscode.postMessage({ type: 'openHandler', method: имя });
-          });
-          props.appendChild(p);
-        }
-      }
-    }
+    // --- свойства: показываются в палитре (правая панель VS Code) ---
+    postSelection();
 
     // --- выпадающий список добавления ---
     const used = new Set(), usedT = new Set();
