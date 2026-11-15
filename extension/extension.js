@@ -555,20 +555,40 @@ async function askName(title, def) {
 
 const KNOWN_TYPES = ['Строка', 'Число', 'Дата', 'Булево'];
 
-async function askType(current) {
+// Составной тип (как в 1С) хранится строкой с запятыми:
+// "СправочникСсылка.Контрагенты, ДокументСсылка.ПоступлениеТоваров"
+function типВСписок(т) {
+  return String(т || '').split(',').map(x => x.trim()).filter(Boolean);
+}
+
+// Все ссылочные типы конфигурации (для диалога выбора типа)
+function ссылочныеТипыКонфигурации(model) {
+  const виды = { catalogs: 'СправочникСсылка', documents: 'ДокументСсылка', enums: 'ПеречислениеСсылка' };
+  const res = [];
+  const walk = n => {
+    if (n.kind === 'class' && виды[n.classId])
+      for (const o of n.children || [])
+        if (o.kind === 'object') res.push({ тип: виды[n.classId] + '.' + o.name, вид: n.classId });
+    for (const c of n.children || []) walk(c);
+  };
+  if (model) walk(model);
+  return res;
+}
+
+async function askType(current, model) {
+  const текущие = new Set(типВСписок(current));
+  const значки = { catalogs: '$(book) ', documents: '$(file) ', enums: '$(list-flat) ' };
   const items = [
-    ...KNOWN_TYPES.map(t => ({ label: t })),
-    { label: 'СправочникСсылка.…', custom: 'СправочникСсылка.' },
-    { label: 'ДокументСсылка.…', custom: 'ДокументСсылка.' },
-    { label: 'ПеречислениеСсылка.…', custom: 'ПеречислениеСсылка.' }
+    ...KNOWN_TYPES.map(t => ({ label: t, тип: t, picked: текущие.has(t) })),
+    ...ссылочныеТипыКонфигурации(model).map(r =>
+      ({ label: значки[r.вид] + r.тип, тип: r.тип, picked: текущие.has(r.тип) }))
   ];
-  const pick = await vscode.window.showQuickPick(items, { title: 'Тип значения', placeHolder: 'Текущий: ' + (current || 'Строка') });
-  if (!pick) return undefined;
-  if (!pick.custom) return pick.label;
-  return vscode.window.showInputBox({
-    title: 'Укажите имя объекта', value: pick.custom,
-    prompt: 'Например: СправочникСсылка.Номенклатура'
+  const picks = await vscode.window.showQuickPick(items, {
+    title: 'Редактирование типа данных', canPickMany: true,
+    placeHolder: 'Отметьте тип; несколько отметок — составной тип данных. Текущий: ' + (current || 'Строка')
   });
+  if (!picks || !picks.length) return undefined;
+  return picks.map(p => p.тип).join(', ');
 }
 
 async function cmdAdd(provider, treeView, node) {
@@ -682,7 +702,11 @@ function applyRenameIntegrity(provider, node, oldName, newName) {
     const newType = def.kind1c + 'Ссылка.' + newName;
     let fixed = 0;
     const walk = n => {
-      if (n.type === oldType) { n.type = newType; fixed++; }
+      if (n.type) { // тип может быть составным — заменяем компоненту
+        const части = типВСписок(n.type);
+        const i = части.indexOf(oldType);
+        if (i >= 0) { части[i] = newType; n.type = части.join(', '); fixed++; }
+      }
       for (const c of n.children || []) walk(c);
     };
     walk(provider.model);
@@ -1402,7 +1426,8 @@ class PropsViewProvider {
     if (m.kind === 'node') {
       const editable = ['object', 'leaf', 'root'].includes(m.node.kind);
       this.view.description = m.node.name;
-      this.view.webview.html = propsHtml(m.node, editable);
+      this.view.webview.html = propsHtml(m.node, editable,
+        ссылочныеТипыКонфигурации(this.provider && this.provider.model));
     } else {
       const e = m.element;
       this.view.description = e ? (e.Заголовок || e.Реквизит || e.ТабличнаяЧасть || e.Тип) : m.formName;
@@ -1632,17 +1657,25 @@ function esc(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function propsHtml(node, editable) {
+function propsHtml(node, editable, refTypes) {
   const dis = editable ? '' : 'disabled';
   const hasType = node.type !== undefined;
   const typeRow = hasType ? `
     <tr><td class="lbl">Тип</td><td>
-      <input id="type" value="${esc(node.type)}" list="types" ${dis}>
-      <datalist id="types">
-        <option>Строка</option><option>Число</option><option>Дата</option><option>Булево</option>
-        <option>СправочникСсылка.</option><option>ДокументСсылка.</option><option>ПеречислениеСсылка.</option>
-      </datalist>
+      <div class="typeCell">
+        <input id="type" value="${esc(node.type)}" ${dis}>
+        <button id="typeBtn" title="Редактирование типа данных" ${dis}>…</button>
+      </div>
     </td></tr>` : '';
+  // элементы диалога выбора типа (примитивы + все ссылочные типы конфигурации)
+  const типыДиалога = [
+    ...['Строка', 'Число', 'Дата', 'Булево'].map(t => ({ т: t, г: 'Примитивные', з: 'п' })),
+    ...(refTypes || []).map(r => ({
+      т: r.тип,
+      г: r.вид === 'catalogs' ? 'Справочники' : r.вид === 'documents' ? 'Документы' : 'Перечисления',
+      з: r.вид === 'catalogs' ? 'с' : r.вид === 'documents' ? 'д' : 'е'
+    }))
+  ];
   const versionRow = node.kind === 'root' ? `
     <tr><td class="lbl">Версия</td><td><input id="version" value="${esc(node.version || '1.0.0')}"></td></tr>` : '';
   return `<!DOCTYPE html>
@@ -1658,6 +1691,33 @@ function propsHtml(node, editable) {
   input:focus { outline: none; border-color: var(--vscode-focusBorder); }
   input[disabled] { opacity: .6; }
   .ro { color: var(--vscode-descriptionForeground); padding: 3px 4px; }
+  .typeCell { display: flex; gap: 2px; }
+  .typeCell button { flex: 0 0 auto; width: 26px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 1px solid var(--vscode-contrastBorder, transparent); cursor: pointer; }
+  /* --- диалог «Редактирование типа данных» (как в 1С) --- */
+  #tdOverlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; z-index: 10; }
+  #tdDlg { position: absolute; left: 50%; top: 24px; transform: translateX(-50%); width: min(340px, 92vw);
+           background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+           border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); box-shadow: 0 4px 16px rgba(0,0,0,.4);
+           display: flex; flex-direction: column; max-height: calc(100vh - 48px); }
+  #tdTitle { display: flex; align-items: center; padding: 5px 8px; font-weight: 600;
+             background: var(--vscode-sideBarSectionHeader-background); border-bottom: 1px solid var(--vscode-panel-border); }
+  #tdTitle span { flex: 1; }
+  #tdClose { cursor: pointer; border: none; background: none; color: inherit; font-size: 14px; padding: 0 4px; }
+  #tdDlg label.сост { display: flex; align-items: center; gap: 6px; padding: 6px 8px; color: var(--vscode-descriptionForeground); }
+  .tdSearch { display: flex; margin: 0 8px 6px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); }
+  .tdSearch input { border: none; flex: 1; }
+  .tdSearch button { border: none; background: none; color: var(--vscode-descriptionForeground); cursor: pointer; }
+  #tdList { overflow-y: auto; border-top: 1px solid var(--vscode-panel-border); border-bottom: 1px solid var(--vscode-panel-border); flex: 1; min-height: 120px; }
+  #tdList .grp { padding: 3px 8px; font-weight: 600; color: var(--vscode-descriptionForeground); background: var(--vscode-editorGroupHeader-tabsBackground); }
+  #tdList label.row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 14px; cursor: pointer; white-space: nowrap; }
+  #tdList label.row:hover { background: var(--vscode-list-hoverBackground); }
+  #tdList .ic { width: 14px; text-align: center; flex: 0 0 auto; font-size: 11px; }
+  .ic.с { color: #4FA7FF; } .ic.д { color: #E2B250; } .ic.е { color: #9A86E8; } .ic.п { color: var(--vscode-descriptionForeground); }
+  #tdBtns { display: flex; justify-content: flex-end; gap: 6px; padding: 7px 8px; }
+  #tdBtns button { min-width: 64px; padding: 3px 10px; border: 1px solid var(--vscode-contrastBorder, transparent);
+                   background: var(--vscode-button-background); color: var(--vscode-button-foreground); cursor: pointer; }
+  #tdBtns button:disabled { opacity: .45; cursor: default; }
+  #tdBtns #tdCancel { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 </style></head>
 <body>
   <div class="hdr">Свойства: ${esc(node.name)}</div>
@@ -1671,12 +1731,101 @@ function propsHtml(node, editable) {
     ${node.module ? `<tr><td class="lbl">Модуль</td><td><div class="ro">${esc(node.module)}</div></td></tr>` : ''}
     <tr><td class="lbl">Тип метаданных</td><td><div class="ro">${esc(nodeTypeLabel(node))}</div></td></tr>
   </table>
+  ${hasType ? `
+  <div id="tdOverlay">
+    <div id="tdDlg">
+      <div id="tdTitle"><span>Редактирование типа данных</span><button id="tdClose" title="Закрыть">✕</button></div>
+      <label class="сост"><input type="checkbox" id="tdComposite"> Составной тип данных</label>
+      <div class="tdSearch"><input id="tdFind" placeholder="Поиск (Ctrl+Alt+M)"><button id="tdFindClear" title="Очистить">✕</button></div>
+      <div id="tdList"></div>
+      <div id="tdBtns"><button id="tdOk" disabled>ОК</button><button id="tdCancel">Отмена</button></div>
+    </div>
+  </div>` : ''}
   <script>
     const vscode = acquireVsCodeApi();
     const nodeId = '${node.id}';
     for (const id of ['name','synonym','comment','type','version']) {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', () => vscode.postMessage({ type: 'set', id: nodeId, field: id, value: el.value }));
+    }
+    // --- диалог «Редактирование типа данных» (как в 1С) ---
+    const типы = ${hasType ? JSON.stringify(типыДиалога) : '[]'};
+    const btn = document.getElementById('typeBtn');
+    if (btn) btn.addEventListener('click', открытьДиалог);
+    function открытьДиалог() {
+      const ov = document.getElementById('tdOverlay');
+      const list = document.getElementById('tdList');
+      const сост = document.getElementById('tdComposite');
+      const поиск = document.getElementById('tdFind');
+      const ок = document.getElementById('tdOk');
+      const выбрано = new Set(String(document.getElementById('type').value || '')
+        .split(',').map(x => x.trim()).filter(Boolean));
+      сост.checked = выбрано.size > 1;
+
+      list.innerHTML = '';
+      const флажки = [];
+      let группа = '';
+      const значок = { п: '◦', с: '▤', д: '▦', е: '≡' };
+      for (const т of типы) {
+        if (т.г !== группа) {
+          группа = т.г;
+          const g = document.createElement('div');
+          g.className = 'grp'; g.textContent = группа; g.dataset.grp = группа;
+          list.appendChild(g);
+        }
+        const row = document.createElement('label');
+        row.className = 'row'; row.dataset.grp = т.г;
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.value = т.т; cb.checked = выбрано.has(т.т);
+        cb.addEventListener('change', () => {
+          if (cb.checked && !сост.checked)                       // одиночный тип — как радиокнопка
+            for (const д of флажки) if (д !== cb) д.checked = false;
+          обновитьОк();
+        });
+        const ic = document.createElement('span');
+        ic.className = 'ic ' + т.з; ic.textContent = значок[т.з];
+        const имя = document.createElement('span');
+        имя.textContent = т.т.includes('.') ? т.т.split('.')[1] : т.т;
+        имя.title = т.т;
+        row.append(cb, ic, имя);
+        list.appendChild(row);
+        флажки.push(cb);
+      }
+      function обновитьОк() { ок.disabled = !флажки.some(f => f.checked); }
+      обновитьОк();
+
+      сост.onchange = () => {                                    // выключили «составной» — остаётся первый
+        if (!сост.checked) {
+          let первый = true;
+          for (const f of флажки) { if (f.checked && !первый) f.checked = false; if (f.checked) первый = false; }
+          обновитьОк();
+        }
+      };
+      function фильтр() {
+        const т = (поиск.value || '').toLowerCase();
+        const видимыеГрупп = {};
+        for (const row of list.querySelectorAll('label.row')) {
+          const показ = !т || row.textContent.toLowerCase().includes(т);
+          row.style.display = показ ? '' : 'none';
+          if (показ) видимыеГрупп[row.dataset.grp] = true;
+        }
+        for (const g of list.querySelectorAll('.grp'))
+          g.style.display = видимыеГрупп[g.dataset.grp] ? '' : 'none';
+      }
+      поиск.value = ''; поиск.oninput = фильтр; фильтр();
+      document.getElementById('tdFindClear').onclick = () => { поиск.value = ''; фильтр(); поиск.focus(); };
+      const закрыть = () => { ov.style.display = 'none'; };
+      document.getElementById('tdClose').onclick = закрыть;
+      document.getElementById('tdCancel').onclick = закрыть;
+      ок.onclick = () => {
+        const значение = флажки.filter(f => f.checked).map(f => f.value).join(', ');
+        const input = document.getElementById('type');
+        input.value = значение;
+        vscode.postMessage({ type: 'set', id: nodeId, field: 'type', value: значение });
+        закрыть();
+      };
+      ov.style.display = 'block';
+      поиск.focus();
     }
   </script>
 </body></html>`;
@@ -1745,7 +1894,7 @@ function активировать(context) {
     vscode.commands.registerCommand('onecTree.setType', async n => {
       n = n || treeView.selection[0];
       if (!n || n.type === undefined) return;
-      const t = await askType(n.type);
+      const t = await askType(n.type, provider.model);
       if (t) { n.type = t; provider.refresh(); }
     }),
     vscode.commands.registerCommand('onecTree.refresh', () => {

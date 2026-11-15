@@ -274,7 +274,7 @@ async function publish(model, rootPath, extensionDir) {
       [...r.dims, ...r.ress].forEach(a => колонкиСсылок.push([r.table, a.col, a.type]));
     for (const [переч, старое, новое] of переименованияЗначений)
       for (const [табл, кол, тип] of колонкиСсылок)
-        if (тип === 'ПеречислениеСсылка.' + переч) {
+        if (String(тип || '').split(',').map(x => x.trim()).includes('ПеречислениеСсылка.' + переч)) {
           db.run(`UPDATE "${табл}" SET "${кол}"=${quoteStr(новое)} WHERE "${кол}"=${quoteStr(старое)}`);
           log.push(`~ ${табл}.${кол}: значение ${старое} -> ${новое}`);
         }
