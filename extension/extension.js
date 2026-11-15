@@ -5,6 +5,34 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 
+// --- журнал ошибок (Вид → Вывод → «1С: Конфигуратор») ---
+let логКанал = null;
+function лог(сообщение) {
+  try {
+    (логКанал ??= vscode.window.createOutputChannel('1С: Конфигуратор'))
+      .appendLine(new Date().toISOString().slice(11, 19) + '  ' + сообщение);
+  } catch { /* вывод недоступен */ }
+}
+// синхронная пауза для повторов файловых операций (антивирус/индексатор/OneDrive
+// на Windows ненадолго блокируют файлы — EBUSY/EPERM)
+function пауза(мс) {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, мс); } catch { /* нет SAB */ }
+}
+// запись с повторами: не роняем расширение из-за временной блокировки файла
+function записать(file, text) {
+  for (let попытка = 1; ; попытка++) {
+    try { fs.writeFileSync(file, text, 'utf8'); return true; }
+    catch (e) {
+      if (попытка === 3) {
+        лог('НЕ ЗАПИСАН ' + file + ': ' + e.message);
+        vscode.window.showErrorMessage('1С: не удалось записать ' + path.basename(file) + ': ' + e.message);
+        return false;
+      }
+      пауза(120);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Описание классов метаданных
 // ---------------------------------------------------------------------------
@@ -316,7 +344,14 @@ class Storage {
   get isProject() { return !!(this.configFile && fs.existsSync(this.configFile)); }
 
   readJson(file) {
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+    for (let попытка = 1; ; попытка++) {
+      try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+      catch (e) {
+        if (!fs.existsSync(file)) return null;
+        if (попытка === 3) { лог('НЕ ПРОЧИТАН ' + file + ': ' + e.message); return null; }
+        пауза(80); // файл занят или недописан — пробуем ещё раз
+      }
+    }
   }
 
   load() {
@@ -329,7 +364,10 @@ class Storage {
 
     const loadDir = (dir, def, target) => {
       if (!fs.existsSync(dir)) return;
-      for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort()) {
+      let файлы;
+      try { файлы = fs.readdirSync(dir); }
+      catch (e) { лог('НЕ ПРОЧИТАН каталог ' + dir + ': ' + e.message); return; }
+      for (const f of файлы.filter(f => f.endsWith('.json')).sort()) {
         const j = this.readJson(path.join(dir, f));
         if (!j || !j.Имя) continue;
         if (CLASS_DEFS.includes(def)) {
@@ -366,7 +404,7 @@ class Storage {
       Имя: model.name, Синоним: model.synonym || '',
       Версия: model.version || '1.0.0', Комментарий: model.comment || ''
     };
-    fs.writeFileSync(this.configFile, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+    записать(this.configFile, JSON.stringify(cfg, null, 2) + '\n');
 
     const writeClass = (dir, def, classNode) => {
       const expected = new Set();
@@ -382,12 +420,15 @@ class Storage {
             })();
         const file = path.join(dir, obj.name + '.json');
         expected.add(obj.name + '.json');
-        fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\n', 'utf8');
+        записать(file, JSON.stringify(json, null, 2) + '\n');
       }
       // удаляем файлы удалённых/переименованных объектов
       if (fs.existsSync(dir)) {
         for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.json'))) {
-          if (!expected.has(f)) fs.unlinkSync(path.join(dir, f));
+          if (!expected.has(f)) {
+            try { fs.unlinkSync(path.join(dir, f)); }
+            catch (e) { лог('НЕ УДАЛЁН ' + path.join(dir, f) + ': ' + e.message); }
+          }
         }
       }
     };
@@ -415,7 +456,10 @@ class OnecTreeProvider {
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this.model = storage.isProject ? storage.load() : buildDefaultModel();
     this.fileMode = storage.isProject;
-    if (this.fileMode && storage.migrated) storage.save(this.model);
+    if (this.fileMode && storage.migrated) {
+      try { storage.save(this.model); }
+      catch (e) { лог('Миграция метаданных отложена: ' + (e.stack || e)); }
+    }
     if (!this.fileMode) { assignTables(this.model); assignColumns(this.model); }
     this.index = new Map();
     this.parents = new Map();
@@ -1643,6 +1687,16 @@ function propsHtml(node, editable) {
 // ---------------------------------------------------------------------------
 
 function activate(context) {
+  try { активировать(context); }
+  catch (e) {
+    лог('ОШИБКА АКТИВАЦИИ: ' + (e.stack || e));
+    vscode.window.showErrorMessage('1С: расширение не активировалось: ' + (e.message || e) +
+      ' — подробности: Вид → Вывод → «1С: Конфигуратор»');
+    throw e;
+  }
+}
+
+function активировать(context) {
   const storage = new Storage();
   const provider = new OnecTreeProvider(context, storage);
   propsView.provider = provider;
