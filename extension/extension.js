@@ -1694,6 +1694,8 @@ function propsHtml(node, editable, refTypes) {
   .typeCell { display: flex; gap: 2px; }
   .typeCell button { flex: 0 0 auto; width: 26px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 1px solid var(--vscode-contrastBorder, transparent); cursor: pointer; }
   /* --- диалог «Редактирование типа данных» (как в 1С) --- */
+  /* глобальный input{width:100%} не должен растягивать флажки — всё прижато влево */
+  #tdDlg input[type=checkbox] { width: auto; flex: 0 0 auto; margin: 0; }
   #tdOverlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; z-index: 10; }
   #tdDlg { position: absolute; left: 50%; top: 24px; transform: translateX(-50%); width: min(340px, 92vw);
            background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
@@ -1703,13 +1705,14 @@ function propsHtml(node, editable, refTypes) {
              background: var(--vscode-sideBarSectionHeader-background); border-bottom: 1px solid var(--vscode-panel-border); }
   #tdTitle span { flex: 1; }
   #tdClose { cursor: pointer; border: none; background: none; color: inherit; font-size: 14px; padding: 0 4px; }
-  #tdDlg label.сост { display: flex; align-items: center; gap: 6px; padding: 6px 8px; color: var(--vscode-descriptionForeground); }
+  #tdDlg label.сост { display: flex; align-items: center; justify-content: flex-start; gap: 6px; padding: 6px 8px; color: var(--vscode-descriptionForeground); cursor: pointer; }
   .tdSearch { display: flex; margin: 0 8px 6px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); }
   .tdSearch input { border: none; flex: 1; }
   .tdSearch button { border: none; background: none; color: var(--vscode-descriptionForeground); cursor: pointer; }
   #tdList { overflow-y: auto; border-top: 1px solid var(--vscode-panel-border); border-bottom: 1px solid var(--vscode-panel-border); flex: 1; min-height: 120px; }
   #tdList .grp { padding: 3px 8px; font-weight: 600; color: var(--vscode-descriptionForeground); background: var(--vscode-editorGroupHeader-tabsBackground); }
-  #tdList label.row { display: flex; align-items: center; gap: 6px; padding: 2px 8px 2px 14px; cursor: pointer; white-space: nowrap; }
+  #tdList label.row { display: flex; align-items: center; justify-content: flex-start; gap: 6px; padding: 2px 8px 2px 14px; cursor: pointer; white-space: nowrap; text-align: left; }
+  #tdList label.row span:last-child { flex: 1; overflow: hidden; text-overflow: ellipsis; }
   #tdList label.row:hover { background: var(--vscode-list-hoverBackground); }
   #tdList .ic { width: 14px; text-align: center; flex: 0 0 auto; font-size: 11px; }
   .ic.с { color: #4FA7FF; } .ic.д { color: #E2B250; } .ic.е { color: #9A86E8; } .ic.п { color: var(--vscode-descriptionForeground); }
