@@ -1030,6 +1030,45 @@ function generateAxaml(info, formName, elements) {
   push(0, `        x:DataType="m:${модель}"`);
   push(0, `        Width="700" SizeToContent="Height" WindowStartupLocation="CenterOwner"`);
   push(0, `        Title="${axamlEscape(info.синоним || info.имя)}" Background="#FFE7B4">`);
+
+  // --- Образец данных для превьюера Avalonia (в рантайме Design.DataContext игнорируется).
+  // Превьюер строит окно из разметки, НЕ выполняя конструктор формы, поэтому образец
+  // задаётся прямо в AXAML: шапка + по 2 строки в каждой таблице формы. Значения можно править.
+  const именаТч = [];
+  const walkТч = эл => (эл || []).forEach(э => {
+    if (э.Тип === 'Таблица' && э.ТабличнаяЧасть && !именаТч.includes(э.ТабличнаяЧасть)) именаТч.push(э.ТабличнаяЧасть);
+    walkТч(э.Элементы);
+  });
+  walkТч(elements);
+  const слова = ['Ромашка', 'Василёк', 'Восход', 'Алмаз', 'Мечта', 'Звезда', 'Пример', 'Образец'];
+  let номерСлова = Math.floor(Math.random() * слова.length);
+  const слово = () => слова[номерСлова++ % слова.length];
+  const сегодня = new Date().toISOString().slice(0, 10);
+  const образец = тип => {
+    if (тип === 'Число') return Math.random() < 0.5
+      ? String(1 + Math.floor(Math.random() * 20))
+      : (Math.floor(Math.random() * 99000) / 100 + 10).toFixed(2);
+    if (тип === 'Булево') return 'True';
+    if (тип === 'Дата') return сегодня;
+    return слово();
+  };
+  const шапкаОбразец = (info.вид === 'Справочник'
+    ? [['Код', '000000001'], ['Наименование', слово()]]
+    : [['Номер', '000000001'], ['Дата', сегодня], ['Проведен', 'True']])
+    .concat((info.реквизиты || []).map(р => [р.имя, образец(р.тип)]));
+  push(1, `<Design.DataContext>`);
+  push(2, `<m:${модель} ${шапкаОбразец.map(([н, з]) => `${н}="${axamlEscape(String(з))}"`).join(' ')}>`);
+  for (const имяТч of именаТч) {
+    const тч = (info.таблицы || []).find(t => t.имя === имяТч);
+    if (!тч || !тч.реквизиты.length) continue;
+    push(3, `<m:${модель}.${тч.имя}>`);
+    for (let i = 0; i < 2; i++)
+      push(4, `<m:${info.вид}_${info.имя}_${тч.имя}_Строка ${тч.реквизиты.map(р => `${р.имя}="${axamlEscape(String(образец(р.тип)))}"`).join(' ')}/>`);
+    push(3, `</m:${модель}.${тч.имя}>`);
+  }
+  push(2, `</m:${модель}>`);
+  push(1, `</Design.DataContext>`);
+
   push(1, `<StackPanel Margin="16" Spacing="8">`);
   elements.forEach(э => элемент(2, э));
   push(2, `<TextBlock Text="{Binding Ошибки}" IsVisible="{Binding ЕстьОшибки}" Foreground="#B00020" TextWrapping="Wrap"/>`);
@@ -1072,42 +1111,7 @@ function generateAxamlCodeBehind(info, formName, elements) {
   L.push('    КонтекстФормы? _контекст;');
   L.push(`    public ${модель} Модель { get; } = new();`);
   L.push('');
-  L.push(`    public ${класс}()`);
-  L.push('    {');
-  L.push('        AvaloniaXamlLoader.Load(this);');
-  L.push('        // В превьюере Avalonia форма открывается с образцом данных (см. ЗаполнитьОбразец) —');
-  L.push('        // так удобно настраивать внешний вид; в рантайме данные загружает Инициализировать.');
-  L.push('        if (Design.IsDesignMode) { ЗаполнитьОбразец(); DataContext = Модель; }');
-  L.push('    }');
-  L.push('');
-  // --- образец данных для превьюера: шапка + по 2 строки в каждой таблице формы ---
-  const слова = ['Ромашка', 'Василёк', 'Восход', 'Алмаз', 'Мечта', 'Звезда', 'Пример', 'Образец'];
-  let номерСлова = Math.floor(Math.random() * слова.length);
-  const слово = () => слова[номерСлова++ % слова.length];
-  const сегодня = new Date().toISOString().slice(0, 10);
-  const образец = тип => {
-    if (тип === 'Число') return (Math.random() < 0.5
-      ? String(1 + Math.floor(Math.random() * 20))
-      : (Math.floor(Math.random() * 99000) / 100 + 10).toFixed(2)) + 'm';
-    if (тип === 'Булево') return 'true';
-    if (тип === 'Дата') return `"${сегодня}"`;
-    return `"${слово()}"`;   // Строка и ссылки (в модели ссылка хранится строкой)
-  };
-  L.push('    /// <summary>Образец данных для превьюера (Design.IsDesignMode): в рантайме не используется.</summary>');
-  L.push('    void ЗаполнитьОбразец()');
-  L.push('    {');
-  const шапка = (info.вид === 'Справочник'
-    ? [['Код', '"000000001"'], ['Наименование', `"${слово()}"`]]
-    : [['Номер', '"000000001"'], ['Дата', `"${сегодня}"`], ['Проведен', 'true']])
-    .concat((info.реквизиты || []).map(р => [р.имя, образец(р.тип)]));
-  for (const [имя, значение] of шапка) L.push(`        Модель.${имя} = ${значение};`);
-  for (const имяТч of таблицы) {
-    const тч = (info.таблицы || []).find(t => t.имя === имяТч);
-    if (!тч || !тч.реквизиты.length) continue;
-    for (let i = 0; i < 2; i++)
-      L.push(`        Модель.${тч.имя}.Add(new() { ${тч.реквизиты.map(р => `${р.имя} = ${образец(р.тип)}`).join(', ')} });`);
-  }
-  L.push('    }');
+  L.push(`    public ${класс}() => AvaloniaXamlLoader.Load(this);`);
   L.push('');
   L.push('    public void Инициализировать(КонтекстФормы контекст)');
   L.push('    {');
